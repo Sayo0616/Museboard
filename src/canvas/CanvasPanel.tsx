@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { TldrawEditor, type Editor, type TLShape } from "tldraw";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { MuseboardNodeShapeUtil, museboardShapeType, shapeIdForNode } from "./TldrawNodeShape";
+import { InspectorPanel } from "../inspector/InspectorPanel";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
 import type { CanvasNode } from "../workspace/workspaceTypes";
 
@@ -12,6 +14,7 @@ export function CanvasPanel() {
   const moveNode = useWorkspaceStore((state) => state.moveNode);
   const editorRef = useRef<Editor | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const nodes = workspace.pages[0].nodes;
 
   const syncWorkspaceToTldraw = useCallback((editor: Editor, nextNodes: CanvasNode[]) => {
@@ -97,6 +100,19 @@ export function CanvasPanel() {
             };
           }}
         />
+      </div>
+
+      <div className={`floating-inspector ${inspectorCollapsed ? "collapsed" : ""}`}>
+        <button
+          className="inspector-toggle"
+          type="button"
+          aria-label={inspectorCollapsed ? "展开属性面板" : "收纳属性面板"}
+          title={inspectorCollapsed ? "展开属性面板" : "收纳属性面板"}
+          onClick={() => setInspectorCollapsed((current) => !current)}
+        >
+          {inspectorCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}
+        </button>
+        {!inspectorCollapsed ? <InspectorPanel /> : null}
       </div>
 
       <CanvasToolbar

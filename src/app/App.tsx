@@ -1,7 +1,6 @@
 import { Bot, ChevronDown, History, PanelRightClose, Play, Save, Share2 } from "lucide-react";
 import { CanvasPanel } from "../canvas/CanvasPanel";
 import { ChatPanel } from "../chat/ChatPanel";
-import { InspectorPanel } from "../inspector/InspectorPanel";
 import { WorkspaceProvider } from "../workspace/WorkspaceProvider";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
 import { Button } from "../ui/Button";
@@ -78,7 +77,6 @@ export function App() {
               <PanelRightClose size={15} />
             </div>
             <ChatPanel />
-            <InspectorPanel />
           </aside>
         </main>
       </div>
