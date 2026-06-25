@@ -26,6 +26,7 @@ type WorkspaceState = {
   setMode: (mode: WorkspaceMode) => void;
   updateNode: (nodeId: string, patch: Record<string, unknown>, eventLabel?: string) => void;
   moveNode: (nodeId: string, x: number, y: number) => void;
+  resizeNode: (nodeId: string, x: number, y: number, width: number, height: number) => void;
   submitMessage: (text: string) => Promise<void>;
   applyAgentResponse: (response: AgentResponse) => void;
   acceptPendingResponse: () => void;
@@ -88,6 +89,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       operations: [{ type: "move_node", nodeId, position: { x, y } }],
     };
     commitResponse(response, set, get, false, "user", `移动 ${nodeId} 到 (${Math.round(x)}, ${Math.round(y)})`);
+  },
+  resizeNode: (nodeId, x, y, width, height) => {
+    const response: AgentResponse = {
+      message: "本地缩放",
+      operations: [{ type: "move_node", nodeId, position: { x, y, width, height } }],
+    };
+    commitResponse(
+      response,
+      set,
+      get,
+      false,
+      "user",
+      `缩放 ${nodeId} 到 ${Math.round(width)}x${Math.round(height)}`,
+    );
   },
   submitMessage: async (text) => {
     const trimmed = text.trim();

@@ -225,12 +225,42 @@ button {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(720px, 1fr) 360px;
+  grid-template-columns: minmax(720px, 1fr) 8px var(--side-width, 360px);
 }
 
 .workspace-area {
   min-width: 0;
-  border-right: 1px solid var(--border);
+}
+
+.layout-resizer {
+  position: relative;
+  z-index: 30;
+  min-width: 8px;
+  cursor: col-resize;
+  background: #fff;
+  touch-action: none;
+  outline: none;
+}
+
+.layout-resizer::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 3px;
+  width: 1px;
+  background: var(--border);
+  transition: background 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.layout-resizer:hover::before,
+.layout-resizer:focus-visible::before,
+.main-layout.resizing .layout-resizer::before {
+  background: #e8b4a0;
+  box-shadow: 0 0 0 2px rgba(231, 111, 60, 0.08);
+}
+
+body.layout-resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .side-area {
@@ -403,6 +433,88 @@ button {
   flex: 1;
   min-height: 0;
   padding: 12px;
+}
+
+.node-resize-handle {
+  position: absolute;
+  z-index: 5;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  opacity: 0.55;
+}
+
+.node-resize-handle:hover,
+.node-resize-handle:focus-visible {
+  opacity: 1;
+}
+
+.node-resize-handle.top,
+.node-resize-handle.bottom {
+  left: 14px;
+  right: 14px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.node-resize-handle.top {
+  top: 0;
+}
+
+.node-resize-handle.bottom {
+  bottom: 0;
+}
+
+.node-resize-handle.left,
+.node-resize-handle.right {
+  top: 14px;
+  bottom: 14px;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.node-resize-handle.left {
+  left: 0;
+}
+
+.node-resize-handle.right {
+  right: 0;
+}
+
+.node-resize-handle.top-left,
+.node-resize-handle.top-right,
+.node-resize-handle.bottom-right,
+.node-resize-handle.bottom-left {
+  width: 12px;
+  height: 12px;
+  border: 1px solid #efc2ae;
+  border-radius: 4px;
+  background: #fff9f6;
+  box-shadow: 0 1px 3px rgba(69, 46, 35, 0.08);
+}
+
+.node-resize-handle.top-left {
+  top: 3px;
+  left: 3px;
+  cursor: nwse-resize;
+}
+
+.node-resize-handle.top-right {
+  top: 3px;
+  right: 3px;
+  cursor: nesw-resize;
+}
+
+.node-resize-handle.bottom-right {
+  right: 3px;
+  bottom: 3px;
+  cursor: nwse-resize;
+}
+
+.node-resize-handle.bottom-left {
+  bottom: 3px;
+  left: 3px;
+  cursor: nesw-resize;
 }
 
 .text-node,
@@ -880,6 +992,10 @@ input[type="range"] {
   .main-layout {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(560px, 1fr) 520px;
+  }
+
+  .layout-resizer {
+    display: none;
   }
 
   .side-area {

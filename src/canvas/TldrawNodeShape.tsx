@@ -4,9 +4,11 @@ import {
   ShapeUtil,
   T,
   createShapeId,
+  resizeBox,
   type Geometry2d,
   type RecordProps,
   type TLBaseShape,
+  type TLResizeInfo,
   type TLShapeId,
   useEditor,
 } from "tldraw";
@@ -14,6 +16,11 @@ import { CanvasNodeContent } from "./CanvasNodeContent";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
 
 export const museboardShapeType = "museboard-node" as const;
+const minNodeWidth = 80;
+const minNodeHeight = 48;
+const resizeHandles = ["top", "right", "bottom", "left", "top-left", "top-right", "bottom-right", "bottom-left"] as const;
+
+type ResizeHandle = (typeof resizeHandles)[number];
 
 type MuseboardShape = TLBaseShape<
   typeof museboardShapeType,
@@ -55,6 +62,18 @@ export class MuseboardNodeShapeUtil extends ShapeUtil<MuseboardShape> {
     });
   }
 
+  override onResize(shape: MuseboardShape, info: TLResizeInfo<MuseboardShape>) {
+    const resized = resizeBox(shape, info, { minWidth: minNodeWidth, minHeight: minNodeHeight });
+    return {
+      ...resized,
+      props: {
+        ...shape.props,
+        w: resized.props.w,
+        h: resized.props.h,
+      },
+    };
+  }
+
   component(shape: MuseboardShape) {
     return <MuseboardTldrawNode shape={shape} />;
   }
@@ -74,6 +93,7 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
   const node = useWorkspaceStore((state) => state.workspace.pages[0].nodes.find((item) => item.id === shape.props.nodeId));
   const selectNode = useWorkspaceStore((state) => state.selectNode);
   const moveNode = useWorkspaceStore((state) => state.moveNode);
+  const resizeNode = useWorkspaceStore((state) => state.resizeNode);
   const editor = useEditor();
 
   if (!node) {
@@ -99,20 +119,25 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
               y: node.position.y,
               zoom: editor.getZoomLevel() || 1,
             };
+            const dragTarget = event.currentTarget.ownerDocument.body;
 
             const handleMove = (moveEvent: PointerEvent) => {
+              moveEvent.preventDefault();
+              moveEvent.stopImmediatePropagation();
               const nextX = start.x + (moveEvent.clientX - start.clientX) / start.zoom;
               const nextY = start.y + (moveEvent.clientY - start.clientY) / start.zoom;
               moveNode(node.id, nextX, nextY);
             };
 
-            const handleUp = () => {
-              window.removeEventListener("pointermove", handleMove);
-              window.removeEventListener("pointerup", handleUp);
+            const handleUp = (upEvent: PointerEvent) => {
+              upEvent.preventDefault();
+              upEvent.stopImmediatePropagation();
+              dragTarget.removeEventListener("pointermove", handleMove, true);
+              dragTarget.removeEventListener("pointerup", handleUp, true);
             };
 
-            window.addEventListener("pointermove", handleMove);
-            window.addEventListener("pointerup", handleUp);
+            dragTarget.addEventListener("pointermove", handleMove, true);
+            dragTarget.addEventListener("pointerup", handleUp, true);
           }}
         >
           <span>{node.name}</span>
@@ -121,9 +146,83 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
         <div className="node-body" onPointerDown={(event) => event.stopPropagation()}>
           <CanvasNodeContent node={node} />
         </div>
+        {resizeHandles.map((handle) => (
+          <button
+            key={handle}
+            className={`node-resize-handle ${handle}`}
+            type="button"
+            aria-label={`Resize ${handle}`}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              selectNode(node.id);
+              const start = {
+                clientX: event.clientX,
+                clientY: event.clientY,
+                x: node.position.x,
+                y: node.position.y,
+                width: node.position.width,
+                height: node.position.height,
+                zoom: editor.getZoomLevel() || 1,
+              };
+              const dragTarget = event.currentTarget.ownerDocument.body;
+
+              const handleMove = (moveEvent: PointerEvent) => {
+                moveEvent.preventDefault();
+                moveEvent.stopImmediatePropagation();
+                const dx = (moveEvent.clientX - start.clientX) / start.zoom;
+                const dy = (moveEvent.clientY - start.clientY) / start.zoom;
+                const next = getResizedBounds(handle, start, dx, dy);
+                resizeNode(node.id, next.x, next.y, next.width, next.height);
+              };
+
+              const handleUp = (upEvent: PointerEvent) => {
+                upEvent.preventDefault();
+                upEvent.stopImmediatePropagation();
+                dragTarget.removeEventListener("pointermove", handleMove, true);
+                dragTarget.removeEventListener("pointerup", handleUp, true);
+              };
+
+              dragTarget.addEventListener("pointermove", handleMove, true);
+              dragTarget.addEventListener("pointerup", handleUp, true);
+            }}
+          />
+        ))}
       </div>
     </HTMLContainer>
   );
+}
+
+function getResizedBounds(
+  handle: ResizeHandle,
+  start: { x: number; y: number; width: number; height: number },
+  dx: number,
+  dy: number,
+) {
+  let x = start.x;
+  let y = start.y;
+  let width = start.width;
+  let height = start.height;
+
+  if (handle.includes("right")) {
+    width = Math.max(minNodeWidth, start.width + dx);
+  }
+
+  if (handle.includes("left")) {
+    width = Math.max(minNodeWidth, start.width - dx);
+    x = start.x + start.width - width;
+  }
+
+  if (handle.includes("bottom")) {
+    height = Math.max(minNodeHeight, start.height + dy);
+  }
+
+  if (handle.includes("top")) {
+    height = Math.max(minNodeHeight, start.height - dy);
+    y = start.y + start.height - height;
+  }
+
+  return { x, y, width, height };
 }
 
 export function shapeIdForNode(nodeId: string): TLShapeId {

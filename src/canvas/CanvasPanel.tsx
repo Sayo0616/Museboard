@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
-import { TldrawEditor, type Editor, type TLShape } from "tldraw";
+import { TldrawEditor, defaultTools, type Editor, type TLShape } from "tldraw";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { MuseboardNodeShapeUtil, museboardShapeType, shapeIdForNode } from "./TldrawNodeShape";
 import { InspectorPanel } from "../inspector/InspectorPanel";
@@ -8,10 +8,12 @@ import { useWorkspaceStore } from "../workspace/workspaceStore";
 import type { CanvasNode } from "../workspace/workspaceTypes";
 
 const shapeUtils = [MuseboardNodeShapeUtil];
+const tools = [...defaultTools];
 
 export function CanvasPanel() {
   const workspace = useWorkspaceStore((state) => state.workspace);
   const moveNode = useWorkspaceStore((state) => state.moveNode);
+  const resizeNode = useWorkspaceStore((state) => state.resizeNode);
   const editorRef = useRef<Editor | null>(null);
   const [zoom, setZoom] = useState(1);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
@@ -74,6 +76,8 @@ export function CanvasPanel() {
       <div className="tldraw-host">
         <TldrawEditor
           shapeUtils={shapeUtils}
+          tools={tools}
+          initialState="select"
           onMount={(editor) => {
             editorRef.current = editor;
             syncWorkspaceToTldraw(editor, nodes);
@@ -84,8 +88,12 @@ export function CanvasPanel() {
                 Object.values(entry.changes.updated).forEach(([from, to]) => {
                   if (from.typeName !== "shape" || to.typeName !== "shape") return;
                   if (from.type !== museboardShapeType || to.type !== museboardShapeType) return;
-                  const shape = to as TLShape & { props: { nodeId: string } };
-                  if (from.x !== to.x || from.y !== to.y) {
+                  const shape = to as TLShape & { props: { nodeId: string; w: number; h: number } };
+                  const previousShape = from as TLShape & { props: { w: number; h: number } };
+                  const didResize = previousShape.props.w !== shape.props.w || previousShape.props.h !== shape.props.h;
+                  if (didResize) {
+                    resizeNode(shape.props.nodeId, to.x, to.y, shape.props.w, shape.props.h);
+                  } else if (from.x !== to.x || from.y !== to.y) {
                     moveNode(shape.props.nodeId, to.x, to.y);
                   }
                 });
