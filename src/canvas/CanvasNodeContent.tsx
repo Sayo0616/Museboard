@@ -1,9 +1,13 @@
 import { Check, MousePointerClick } from "lucide-react";
+import type { PointerEvent } from "react";
 import type { CanvasNode } from "../workspace/workspaceTypes";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
 
 export function CanvasNodeContent({ node }: { node: CanvasNode }) {
   const updateNode = useWorkspaceStore((state) => state.updateNode);
+  const beginUserEdit = useWorkspaceStore((state) => state.beginUserEdit);
+  const previewUserEdit = useWorkspaceStore((state) => state.previewUserEdit);
+  const commitUserEdit = useWorkspaceStore((state) => state.commitUserEdit);
 
   switch (node.type) {
     case "text":
@@ -11,7 +15,14 @@ export function CanvasNodeContent({ node }: { node: CanvasNode }) {
     case "agent_plan":
       return <TextNode node={node} updateNode={updateNode} />;
     case "slider":
-      return <SliderNode node={node} updateNode={updateNode} />;
+      return (
+        <SliderNode
+          node={node}
+          beginUserEdit={beginUserEdit}
+          previewUserEdit={previewUserEdit}
+          commitUserEdit={commitUserEdit}
+        />
+      );
     case "chart":
       return <ChartNode node={node} />;
     case "flowchart":
@@ -52,16 +63,68 @@ function TextNode({
 
 function SliderNode({
   node,
-  updateNode,
+  beginUserEdit,
+  previewUserEdit,
+  commitUserEdit,
 }: {
   node: CanvasNode;
-  updateNode: (nodeId: string, patch: Record<string, unknown>, label?: string) => void;
+  beginUserEdit: (label?: string) => void;
+  previewUserEdit: (response: { message: string; operations: [{ type: "update_node"; nodeId: string; patch: Record<string, unknown> }] }, label?: string) => void;
+  commitUserEdit: (label?: string) => void;
 }) {
   const min = Number(node.props.min ?? 0);
   const max = Number(node.props.max ?? 100);
   const step = Number(node.props.step ?? 1);
   const value = Number(node.props.value ?? 0);
   const unit = String(node.props.unit ?? "");
+  const eventLabel = `${node.name} 当前值已更新`;
+  const previewValue = (next: number) => {
+    beginUserEdit(eventLabel);
+    previewUserEdit(
+      {
+        message: "本地更新",
+        operations: [{ type: "update_node", nodeId: node.id, patch: { "props.value": next } }],
+      },
+      eventLabel,
+    );
+  };
+  const valueFromClientX = (clientX: number, rect: DOMRect) => {
+    const low = Math.min(min, max);
+    const high = Math.max(min, max);
+    const ratio = rect.width > 0 ? (clientX - rect.left) / rect.width : 0;
+    const raw = min + Math.min(1, Math.max(0, ratio)) * (max - min);
+    const stepped = step > 0 ? min + Math.round((raw - min) / step) * step : raw;
+    const clamped = Math.min(high, Math.max(low, stepped));
+    return Number(clamped.toFixed(6));
+  };
+  const startRangeDrag = (event: PointerEvent<HTMLInputElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const target = event.currentTarget;
+    const rect = target.getBoundingClientRect();
+    previewValue(valueFromClientX(event.clientX, rect));
+
+    const handleMove = (moveEvent: globalThis.PointerEvent) => {
+      moveEvent.preventDefault();
+      moveEvent.stopImmediatePropagation();
+      previewValue(valueFromClientX(moveEvent.clientX, rect));
+    };
+
+    const handleUp = (upEvent: globalThis.PointerEvent) => {
+      upEvent.preventDefault();
+      upEvent.stopImmediatePropagation();
+      document.removeEventListener("pointermove", handleMove, true);
+      document.removeEventListener("pointerup", handleUp, true);
+      document.removeEventListener("pointercancel", handleUp, true);
+      commitUserEdit(eventLabel);
+    };
+
+    document.addEventListener("pointermove", handleMove, true);
+    document.addEventListener("pointerup", handleUp, true);
+    document.addEventListener("pointercancel", handleUp, true);
+  };
 
   return (
     <div className="slider-node">
@@ -78,9 +141,18 @@ function SliderNode({
         max={max}
         step={step}
         value={value}
+        onPointerDown={startRangeDrag}
+        onPointerUp={() => commitUserEdit(eventLabel)}
+        onPointerCancel={() => commitUserEdit(eventLabel)}
+        onBlur={() => commitUserEdit(eventLabel)}
+        onKeyUp={(event) => {
+          if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key)) {
+            commitUserEdit(eventLabel);
+          }
+        }}
         onChange={(event) => {
           const next = Number(event.target.value);
-          updateNode(node.id, { "props.value": next }, `${node.name} 从 ${value} 改为 ${next}`);
+          previewValue(next);
         }}
       />
       <div className="range-meta">

@@ -21,12 +21,18 @@ type WorkspaceState = {
   pendingResponse: AgentResponse | null;
   past: Workspace[];
   future: Workspace[];
+  userEditBase: Workspace | null;
+  userEditLabel: string | null;
   saveState: "saved" | "dirty";
   selectNode: (nodeId: string | null, append?: boolean) => void;
   setMode: (mode: WorkspaceMode) => void;
   updateNode: (nodeId: string, patch: Record<string, unknown>, eventLabel?: string) => void;
   moveNode: (nodeId: string, x: number, y: number) => void;
   resizeNode: (nodeId: string, x: number, y: number, width: number, height: number) => void;
+  beginUserEdit: (eventLabel?: string) => void;
+  previewUserEdit: (response: AgentResponse, eventLabel?: string) => void;
+  commitUserEdit: (eventLabel?: string) => void;
+  cancelUserEdit: () => void;
   submitMessage: (text: string) => Promise<void>;
   applyAgentResponse: (response: AgentResponse) => void;
   acceptPendingResponse: () => void;
@@ -60,10 +66,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   pendingResponse: null,
   past: [],
   future: [],
+  userEditBase: null,
+  userEditLabel: null,
   saveState: "dirty",
   selectNode: (nodeId, append = false) => {
     set((state) => {
-      if (!nodeId) return { selectedNodeIds: [] };
+      if (!nodeId) return state.selectedNodeIds.length === 0 ? state : { selectedNodeIds: [] };
       if (append) {
         const exists = state.selectedNodeIds.includes(nodeId);
         return {
@@ -72,6 +80,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
             : [...state.selectedNodeIds, nodeId],
         };
       }
+      if (state.selectedNodeIds.length === 1 && state.selectedNodeIds[0] === nodeId) return state;
       return { selectedNodeIds: [nodeId] };
     });
   },
@@ -103,6 +112,43 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       "user",
       `缩放 ${nodeId} 到 ${Math.round(width)}x${Math.round(height)}`,
     );
+  },
+  beginUserEdit: (eventLabel) => {
+    set((state) => {
+      if (state.userEditBase) {
+        return { userEditLabel: eventLabel ?? state.userEditLabel };
+      }
+      return { userEditBase: state.workspace, userEditLabel: eventLabel ?? null };
+    });
+  },
+  previewUserEdit: (response, eventLabel) => {
+    previewResponse(response, set, get, eventLabel);
+  },
+  commitUserEdit: (eventLabel) => {
+    set((state) => {
+      if (!state.userEditBase) return state;
+      const label = eventLabel ?? state.userEditLabel;
+      const didChange = state.workspace !== state.userEditBase;
+
+      return {
+        userEditBase: null,
+        userEditLabel: null,
+        past: didChange ? [...state.past, state.userEditBase].slice(-40) : state.past,
+        future: didChange ? [] : state.future,
+        recentUserEvents: didChange && label ? [...state.recentUserEvents, label].slice(-12) : state.recentUserEvents,
+        saveState: didChange ? "dirty" : state.saveState,
+      };
+    });
+  },
+  cancelUserEdit: () => {
+    set((state) => {
+      if (!state.userEditBase) return state;
+      return {
+        workspace: state.userEditBase,
+        userEditBase: null,
+        userEditLabel: null,
+      };
+    });
   },
   submitMessage: async (text) => {
     const trimmed = text.trim();
@@ -164,6 +210,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         workspace: previous,
         past: state.past.slice(0, -1),
         future: [state.workspace, ...state.future],
+        userEditBase: null,
+        userEditLabel: null,
         saveState: "dirty",
       };
     });
@@ -176,6 +224,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         workspace: next,
         past: [...state.past, state.workspace],
         future: state.future.slice(1),
+        userEditBase: null,
+        userEditLabel: null,
         saveState: "dirty",
       };
     });
@@ -192,6 +242,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       workspace,
       past: [...state.past, state.workspace],
       future: [],
+      userEditBase: null,
+      userEditLabel: null,
       saveState: "saved",
       selectedNodeIds: [],
     }));
@@ -232,6 +284,32 @@ function commitResponse(
         ...state.messages,
         { id: createId("message_error"), role: "system", text: `操作未通过校验：${message}`, createdAt: nowIso() },
       ],
+    });
+  }
+}
+
+function previewResponse(response: AgentResponse, set: StoreSet, get: StoreGet, eventLabel?: string) {
+  try {
+    const state = get();
+    const baseWorkspace = state.userEditBase ?? state.workspace;
+    const nextWorkspace = applyOperations(baseWorkspace, response.operations, "user");
+
+    set({
+      workspace: nextWorkspace,
+      userEditBase: state.userEditBase ?? baseWorkspace,
+      userEditLabel: eventLabel ?? state.userEditLabel,
+      saveState: "dirty",
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "未知错误";
+    const state = get();
+    set({
+      messages: [
+        ...state.messages,
+        { id: createId("message_error"), role: "system", text: `操作未通过校验：${message}`, createdAt: nowIso() },
+      ],
+      userEditBase: null,
+      userEditLabel: null,
     });
   }
 }
