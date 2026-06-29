@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
-import { Bot, ChevronDown, History, PanelRightClose, Play, Save, Share2 } from "lucide-react";
+import { Bot, ChevronDown, History, PanelRightClose, PanelRightOpen, Play, Save, Share2 } from "lucide-react";
 import { CanvasPanel } from "../canvas/CanvasPanel";
 import { ChatPanel } from "../chat/ChatPanel";
 import { WorkspaceProvider } from "../workspace/WorkspaceProvider";
@@ -10,6 +10,7 @@ import { Tooltip } from "../ui/Tooltip";
 const defaultSideWidth = 360;
 const minSideWidth = 300;
 const maxSideWidth = 560;
+const collapsedSideWidth = 48;
 const minCanvasWidth = 720;
 
 function constrainSideWidth(width: number, layoutWidth: number) {
@@ -26,6 +27,7 @@ export function App() {
   const loadWorkspace = useWorkspaceStore((state) => state.loadWorkspace);
   const layoutRef = useRef<HTMLElement | null>(null);
   const [sideWidth, setSideWidth] = useState(defaultSideWidth);
+  const [isSideCollapsed, setIsSideCollapsed] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
 
   const setConstrainedSideWidth = useCallback((nextWidth: number) => {
@@ -41,16 +43,17 @@ export function App() {
 
   const handleResizePointerDown = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
+      if (isSideCollapsed) return;
       if (event.button !== 0) return;
       event.preventDefault();
       setIsResizing(true);
       updateSideWidthFromPointer(event.clientX);
     },
-    [updateSideWidthFromPointer],
+    [isSideCollapsed, updateSideWidthFromPointer],
   );
 
   useEffect(() => {
-    if (!isResizing) return;
+    if (!isResizing || isSideCollapsed) return;
 
     const handlePointerMove = (event: globalThis.PointerEvent) => {
       event.preventDefault();
@@ -69,7 +72,7 @@ export function App() {
       window.removeEventListener("pointerup", stopResizing);
       window.removeEventListener("pointercancel", stopResizing);
     };
-  }, [isResizing, updateSideWidthFromPointer]);
+  }, [isResizing, isSideCollapsed, updateSideWidthFromPointer]);
 
   return (
     <WorkspaceProvider>
@@ -126,8 +129,8 @@ export function App() {
 
         <main
           ref={layoutRef}
-          className={`main-layout ${isResizing ? "resizing" : ""}`}
-          style={{ "--side-width": `${sideWidth}px` } as CSSProperties}
+          className={`main-layout ${isResizing ? "resizing" : ""} ${isSideCollapsed ? "side-collapsed" : ""}`}
+          style={{ "--side-width": `${isSideCollapsed ? collapsedSideWidth : sideWidth}px` } as CSSProperties}
         >
           <section className="workspace-area">
             <CanvasPanel />
@@ -140,9 +143,11 @@ export function App() {
             aria-valuemin={minSideWidth}
             aria-valuemax={maxSideWidth}
             aria-valuenow={Math.round(sideWidth)}
-            tabIndex={0}
+            aria-disabled={isSideCollapsed}
+            tabIndex={isSideCollapsed ? -1 : 0}
             onPointerDown={handleResizePointerDown}
             onKeyDown={(event) => {
+              if (isSideCollapsed) return;
               if (event.key === "ArrowLeft") {
                 event.preventDefault();
                 setConstrainedSideWidth(sideWidth + 20);
@@ -161,12 +166,21 @@ export function App() {
               }
             }}
           />
-          <aside className="side-area">
+          <aside className={`side-area ${isSideCollapsed ? "collapsed" : ""}`}>
             <div className="side-header">
-              <span>协作通道</span>
-              <PanelRightClose size={15} />
+              {!isSideCollapsed ? <span>协作通道</span> : null}
+              <button
+                className="side-toggle"
+                type="button"
+                aria-label={isSideCollapsed ? "展开对话窗口" : "收纳对话窗口"}
+                aria-expanded={!isSideCollapsed}
+                title={isSideCollapsed ? "展开对话窗口" : "收纳对话窗口"}
+                onClick={() => setIsSideCollapsed((current) => !current)}
+              >
+                {isSideCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}
+              </button>
             </div>
-            <ChatPanel />
+            {!isSideCollapsed ? <ChatPanel /> : null}
           </aside>
         </main>
       </div>

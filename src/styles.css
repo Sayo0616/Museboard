@@ -226,6 +226,11 @@ button {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(720px, 1fr) 8px var(--side-width, 360px);
+  transition: grid-template-columns 180ms ease-out;
+}
+
+.main-layout.side-collapsed {
+  grid-template-columns: minmax(720px, 1fr) 0 var(--side-width, 48px);
 }
 
 .workspace-area {
@@ -258,6 +263,15 @@ button {
   box-shadow: 0 0 0 2px rgba(231, 111, 60, 0.08);
 }
 
+.main-layout.side-collapsed .layout-resizer {
+  pointer-events: none;
+  min-width: 0;
+}
+
+.main-layout.side-collapsed .layout-resizer::before {
+  display: none;
+}
+
 body.layout-resizing {
   cursor: col-resize;
   user-select: none;
@@ -268,6 +282,12 @@ body.layout-resizing {
   display: grid;
   grid-template-rows: 42px minmax(0, 1fr);
   background: #fff;
+  overflow: hidden;
+  transition: width 180ms ease-out;
+}
+
+.side-area.collapsed {
+  grid-template-rows: 42px;
 }
 
 .side-header {
@@ -276,6 +296,32 @@ body.layout-resizing {
   border-bottom: 1px solid var(--border);
   color: var(--muted);
   font-size: 12px;
+}
+
+.side-area.collapsed .side-header {
+  justify-content: center;
+  padding: 0;
+}
+
+.side-toggle {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 150ms ease-out, background 150ms ease-out, color 150ms ease-out;
+}
+
+.side-toggle:hover,
+.side-toggle:focus-visible {
+  border-color: var(--border);
+  background: var(--panel-soft);
+  color: var(--accent);
+  outline: none;
 }
 
 .canvas-panel {
@@ -404,6 +450,11 @@ body.layout-resizing {
   transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
 }
 
+.canvas-node:hover {
+  border-color: #ead1c7;
+  box-shadow: 0 0 0 2px rgba(231, 111, 60, 0.05), var(--shadow);
+}
+
 .canvas-node.selected {
   border-color: #efc2ae;
   box-shadow: 0 0 0 3px rgba(231, 111, 60, 0.08), var(--shadow);
@@ -441,6 +492,12 @@ body.layout-resizing {
   border: 0;
   padding: 0;
   background: transparent;
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+
+.canvas-node:hover .node-resize-handle,
+.canvas-node.selected .node-resize-handle {
   opacity: 0.55;
 }
 

@@ -91,9 +91,11 @@ export class MuseboardNodeShapeUtil extends ShapeUtil<MuseboardShape> {
 
 function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
   const node = useWorkspaceStore((state) => state.workspace.pages[0].nodes.find((item) => item.id === shape.props.nodeId));
+  const isSelected = useWorkspaceStore((state) => state.selectedNodeIds.includes(shape.props.nodeId));
   const selectNode = useWorkspaceStore((state) => state.selectNode);
-  const moveNode = useWorkspaceStore((state) => state.moveNode);
-  const resizeNode = useWorkspaceStore((state) => state.resizeNode);
+  const beginUserEdit = useWorkspaceStore((state) => state.beginUserEdit);
+  const previewUserEdit = useWorkspaceStore((state) => state.previewUserEdit);
+  const commitUserEdit = useWorkspaceStore((state) => state.commitUserEdit);
   const editor = useEditor();
 
   if (!node) {
@@ -105,13 +107,15 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
   }
 
   return (
-    <HTMLContainer className={`tldraw-node-host node-${node.type}`} onPointerDown={() => selectNode(node.id)}>
-      <div className="canvas-node tldraw-node-shell" style={{ width: shape.props.w, height: shape.props.h }}>
+    <HTMLContainer className={`tldraw-node-host node-${node.type}`} onPointerDownCapture={() => selectNode(node.id)}>
+      <div className={`canvas-node tldraw-node-shell ${isSelected ? "selected" : ""}`} style={{ width: shape.props.w, height: shape.props.h }}>
         <div
           className="node-drag-handle"
           onPointerDown={(event) => {
             event.stopPropagation();
             selectNode(node.id);
+            const eventLabel = `移动 ${node.id}`;
+            beginUserEdit(eventLabel);
             const start = {
               clientX: event.clientX,
               clientY: event.clientY,
@@ -126,7 +130,13 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
               moveEvent.stopImmediatePropagation();
               const nextX = start.x + (moveEvent.clientX - start.clientX) / start.zoom;
               const nextY = start.y + (moveEvent.clientY - start.clientY) / start.zoom;
-              moveNode(node.id, nextX, nextY);
+              previewUserEdit(
+                {
+                  message: "本地移动",
+                  operations: [{ type: "move_node", nodeId: node.id, position: { x: nextX, y: nextY } }],
+                },
+                eventLabel,
+              );
             };
 
             const handleUp = (upEvent: PointerEvent) => {
@@ -134,6 +144,7 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
               upEvent.stopImmediatePropagation();
               dragTarget.removeEventListener("pointermove", handleMove, true);
               dragTarget.removeEventListener("pointerup", handleUp, true);
+              commitUserEdit(eventLabel);
             };
 
             dragTarget.addEventListener("pointermove", handleMove, true);
@@ -156,6 +167,8 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
               event.preventDefault();
               event.stopPropagation();
               selectNode(node.id);
+              const eventLabel = `缩放 ${node.id}`;
+              beginUserEdit(eventLabel);
               const start = {
                 clientX: event.clientX,
                 clientY: event.clientY,
@@ -173,7 +186,13 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
                 const dx = (moveEvent.clientX - start.clientX) / start.zoom;
                 const dy = (moveEvent.clientY - start.clientY) / start.zoom;
                 const next = getResizedBounds(handle, start, dx, dy);
-                resizeNode(node.id, next.x, next.y, next.width, next.height);
+                previewUserEdit(
+                  {
+                    message: "本地缩放",
+                    operations: [{ type: "move_node", nodeId: node.id, position: next }],
+                  },
+                  eventLabel,
+                );
               };
 
               const handleUp = (upEvent: PointerEvent) => {
@@ -181,6 +200,7 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
                 upEvent.stopImmediatePropagation();
                 dragTarget.removeEventListener("pointermove", handleMove, true);
                 dragTarget.removeEventListener("pointerup", handleUp, true);
+                commitUserEdit(eventLabel);
               };
 
               dragTarget.addEventListener("pointermove", handleMove, true);
