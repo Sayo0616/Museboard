@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
-import { Bot, ChevronDown, History, PanelRightClose, PanelRightOpen, Play, Save, Share2 } from "lucide-react";
+import { Bot, ChevronDown, Copy, History, PanelRightClose, PanelRightOpen, Play, Plus, Save, Share2, Trash2 } from "lucide-react";
 import { CanvasPanel } from "../canvas/CanvasPanel";
 import { ChatPanel } from "../chat/ChatPanel";
 import { WorkspaceProvider } from "../workspace/WorkspaceProvider";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
+import type { AgentTransport } from "../workspace/workspaceTypes";
 import { Button } from "../ui/Button";
 import { Tooltip } from "../ui/Tooltip";
 
@@ -22,13 +23,26 @@ export function App() {
   const workspace = useWorkspaceStore((state) => state.workspace);
   const saveState = useWorkspaceStore((state) => state.saveState);
   const mode = useWorkspaceStore((state) => state.mode);
+  const agentPermissionLevel = useWorkspaceStore((state) => state.agentPermissionLevel);
+  const agentTransport = useWorkspaceStore((state) => state.agentTransport);
+  const agentEndpoint = useWorkspaceStore((state) => state.agentEndpoint);
+  const versionHistory = useWorkspaceStore((state) => state.versionHistory);
   const setMode = useWorkspaceStore((state) => state.setMode);
+  const setAgentPermissionLevel = useWorkspaceStore((state) => state.setAgentPermissionLevel);
+  const setAgentTransport = useWorkspaceStore((state) => state.setAgentTransport);
+  const setAgentEndpoint = useWorkspaceStore((state) => state.setAgentEndpoint);
+  const createPage = useWorkspaceStore((state) => state.createPage);
+  const duplicatePage = useWorkspaceStore((state) => state.duplicatePage);
+  const deletePage = useWorkspaceStore((state) => state.deletePage);
+  const setActivePage = useWorkspaceStore((state) => state.setActivePage);
+  const restoreVersion = useWorkspaceStore((state) => state.restoreVersion);
   const saveWorkspace = useWorkspaceStore((state) => state.saveWorkspace);
   const loadWorkspace = useWorkspaceStore((state) => state.loadWorkspace);
   const layoutRef = useRef<HTMLElement | null>(null);
   const [sideWidth, setSideWidth] = useState(defaultSideWidth);
   const [isSideCollapsed, setIsSideCollapsed] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   const setConstrainedSideWidth = useCallback((nextWidth: number) => {
     const layoutWidth = layoutRef.current?.getBoundingClientRect().width ?? window.innerWidth;
@@ -92,6 +106,39 @@ export function App() {
             <span className={`status-pill ${saveState === "saved" ? "saved" : ""}`}>
               {saveState === "saved" ? "已保存" : "有未保存修改"}
             </span>
+            <div className="page-controls" aria-label="页面管理">
+              <select
+                className="page-select"
+                aria-label="当前页面"
+                value={workspace.activePageId}
+                onChange={(event) => setActivePage(event.target.value)}
+              >
+                {workspace.pages.map((page) => (
+                  <option key={page.id} value={page.id}>
+                    {page.name}
+                  </option>
+                ))}
+              </select>
+              <Tooltip label="新增页面">
+                <Button onClick={createPage} aria-label="新增页面">
+                  <Plus size={15} />
+                </Button>
+              </Tooltip>
+              <Tooltip label="复制当前页面">
+                <Button onClick={duplicatePage} aria-label="复制当前页面">
+                  <Copy size={15} />
+                </Button>
+              </Tooltip>
+              <Tooltip label="删除当前页面">
+                <Button
+                  onClick={() => deletePage(workspace.activePageId)}
+                  disabled={workspace.pages.length <= 1}
+                  aria-label="删除当前页面"
+                >
+                  <Trash2 size={15} />
+                </Button>
+              </Tooltip>
+            </div>
             <div className="segmented-control" aria-label="运行模式">
               {(["edit", "run", "agent"] as const).map((item) => (
                 <button key={item} className={mode === item ? "active" : ""} onClick={() => setMode(item)}>
@@ -99,6 +146,43 @@ export function App() {
                 </button>
               ))}
             </div>
+            <select
+              className="agent-permission-select"
+              aria-label="Agent 权限级别"
+              value={agentPermissionLevel}
+              onChange={(event) => setAgentPermissionLevel(event.target.value as typeof agentPermissionLevel)}
+            >
+              <option value="suggest">仅建议</option>
+              <option value="auto_apply_safe">安全自动</option>
+              <option value="confirm_destructive">删除确认</option>
+              <option value="manual_only">全部确认</option>
+            </select>
+            <select
+              className="agent-transport-select"
+              aria-label="Agent 连接方式"
+              value={agentTransport}
+              onChange={(event) => setAgentTransport(event.target.value as AgentTransport)}
+            >
+              <option value="local">Local</option>
+              <option value="http">HTTP</option>
+              <option value="sse">SSE</option>
+              <option value="websocket">WS</option>
+            </select>
+            {agentTransport !== "local" ? (
+              <input
+                className="agent-endpoint-input"
+                aria-label="Agent endpoint"
+                placeholder={
+                  agentTransport === "http"
+                    ? "https://.../agent"
+                    : agentTransport === "sse"
+                      ? "https://.../events"
+                      : "wss://.../agent"
+                }
+                value={agentEndpoint}
+                onChange={(event) => setAgentEndpoint(event.target.value)}
+              />
+            ) : null}
             <Tooltip label="保存 workspace 到浏览器本地存储">
               <Button onClick={saveWorkspace}>
                 <Save size={15} />
@@ -109,8 +193,8 @@ export function App() {
                 <ChevronDown size={15} />
               </Button>
             </Tooltip>
-            <Tooltip label="历史版本预留入口">
-              <Button>
+            <Tooltip label="历史版本">
+              <Button onClick={() => setIsHistoryOpen((current) => !current)} aria-expanded={isHistoryOpen}>
                 <History size={15} />
               </Button>
             </Tooltip>
@@ -126,6 +210,38 @@ export function App() {
             </Tooltip>
           </div>
         </header>
+        {isHistoryOpen ? (
+          <section className="history-popover" aria-label="历史版本">
+            <div className="history-title">
+              <strong>历史版本</strong>
+              <span>{versionHistory.length} 条</span>
+            </div>
+            <div className="history-list">
+              {[...versionHistory].reverse().map((snapshot) => (
+                <article className="history-item" key={snapshot.id}>
+                  <div>
+                    <strong>{snapshot.label}</strong>
+                    <span>
+                      v{snapshot.version} · {new Date(snapshot.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </div>
+                  <p>
+                    +{snapshot.diff.nodesAdded} 节点 / {snapshot.diff.nodesUpdated} 修改 / -{snapshot.diff.nodesRemoved} 删除 / +
+                    {snapshot.diff.edgesAdded} 连线 / -{snapshot.diff.edgesRemoved} 连线 / {snapshot.diff.variablesChanged} 变量
+                  </p>
+                  <Button
+                    onClick={() => {
+                      restoreVersion(snapshot.id);
+                      setIsHistoryOpen(false);
+                    }}
+                  >
+                    恢复
+                  </Button>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <main
           ref={layoutRef}
