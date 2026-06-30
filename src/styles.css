@@ -786,35 +786,34 @@ body.layout-resizing {
 .node-resize-handle.top-right,
 .node-resize-handle.bottom-right,
 .node-resize-handle.bottom-left {
-  width: 12px;
-  height: 12px;
-  border: 1px solid #efc2ae;
-  border-radius: 4px;
-  background: #fff9f6;
-  box-shadow: 0 1px 3px rgba(69, 46, 35, 0.08);
+  width: 16px;
+  height: 16px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .node-resize-handle.top-left {
-  top: 3px;
-  left: 3px;
+  top: 0;
+  left: 0;
   cursor: nwse-resize;
 }
 
 .node-resize-handle.top-right {
-  top: 3px;
-  right: 3px;
+  top: 0;
+  right: 0;
   cursor: nesw-resize;
 }
 
 .node-resize-handle.bottom-right {
-  right: 3px;
-  bottom: 3px;
+  right: 0;
+  bottom: 0;
   cursor: nwse-resize;
 }
 
 .node-resize-handle.bottom-left {
-  bottom: 3px;
-  left: 3px;
+  bottom: 0;
+  left: 0;
   cursor: nesw-resize;
 }
 
