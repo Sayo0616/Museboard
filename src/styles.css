@@ -520,6 +520,26 @@ body.layout-resizing {
   opacity: 0.76;
 }
 
+.canvas-edge .canvas-edge-hit {
+  stroke: rgba(231, 111, 60, 0.001);
+  stroke-width: 16;
+  marker-end: none;
+  opacity: 1;
+  pointer-events: all;
+  cursor: pointer;
+}
+
+.canvas-edge.selected path:not(.canvas-edge-hit) {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  opacity: 0.95;
+}
+
+.canvas-edge.selected text {
+  fill: #b85333;
+  font-weight: 600;
+}
+
 .canvas-edge text {
   fill: #9a8580;
   font-size: 11px;
@@ -544,6 +564,20 @@ body.layout-resizing {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.9);
   box-shadow: var(--shadow);
+}
+
+.marquee-selection {
+  position: absolute;
+  z-index: 35;
+  border: 1px solid rgba(231, 111, 60, 0.78);
+  border-radius: 6px;
+  background: rgba(231, 111, 60, 0.08);
+  pointer-events: none;
+}
+
+.canvas-toolbar .tooltip-wrap:hover::after {
+  top: auto;
+  bottom: calc(100% + 8px);
 }
 
 .tl-container {
@@ -875,6 +909,15 @@ input[type="range"] {
   height: calc(100% - 48px);
 }
 
+.pie-slice-label {
+  fill: #6f5852;
+  font-size: 10px;
+  font-weight: 650;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.88);
+  stroke-width: 3px;
+}
+
 .flow-steps {
   display: grid;
   gap: 8px;
@@ -1005,6 +1048,33 @@ input[type="range"] {
   gap: 6px;
   color: var(--accent);
   font-size: 12px;
+}
+
+.edge-inspector dl {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.edge-inspector dl div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.edge-inspector dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.edge-inspector dd {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  color: #5b5555;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .canvas-toolbar {

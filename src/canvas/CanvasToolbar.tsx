@@ -30,18 +30,18 @@ export function CanvasToolbar({ zoom, onZoomIn, onZoomOut, onFit }: CanvasToolba
       </div>
       <div className="toolbar-section">
         <Tooltip label="缩小">
-          <Button onClick={onZoomOut}>
+          <Button onClick={onZoomOut} aria-label="缩小">
             <Minus size={14} />
           </Button>
         </Tooltip>
         <span className="zoom-readout">{Math.round(zoom * 100)}%</span>
         <Tooltip label="放大">
-          <Button onClick={onZoomIn}>
+          <Button onClick={onZoomIn} aria-label="放大">
             <Plus size={14} />
           </Button>
         </Tooltip>
         <Tooltip label="适配屏幕">
-          <Button onClick={onFit}>
+          <Button onClick={onFit} aria-label="适配屏幕">
             <Maximize2 size={14} />
           </Button>
         </Tooltip>
@@ -78,12 +78,12 @@ export function CanvasToolbar({ zoom, onZoomIn, onZoomOut, onFit }: CanvasToolba
           </Button>
         </Tooltip>
         <Tooltip label="撤销">
-          <Button onClick={undo}>
+          <Button onClick={undo} aria-label="撤销">
             <Undo2 size={14} />
           </Button>
         </Tooltip>
         <Tooltip label="重做">
-          <Button onClick={redo}>
+          <Button onClick={redo} aria-label="重做">
             <Redo2 size={14} />
           </Button>
         </Tooltip>

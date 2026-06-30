@@ -151,13 +151,16 @@ export function ChartRenderer({ node }: ComponentRendererProps) {
         onChange={(event) => updateNode(node.id, { "props.title": event.target.value }, `${node.name} 标题已更新`)}
       />
       <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg" aria-label={node.name}>
-        <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="#ece7e7" />
         {chartType === "pie" ? (
-          <PieChart data={data} width={width} height={height} />
+          <PieChart data={data} labels={labels} width={width} height={height} />
         ) : chartType === "scatter" ? (
-          <ScatterChart data={data} width={width} height={height} max={max} />
+          <>
+            <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="#ece7e7" />
+            <ScatterChart data={data} width={width} height={height} max={max} />
+          </>
         ) : chartType === "line" ? (
           <>
+            <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="#ece7e7" />
             <polyline points={points} fill="none" stroke="#e76f3c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             {data.map((value, index) => {
               const x = 16 + (index * (width - 32)) / Math.max(data.length - 1, 1);
@@ -166,38 +169,44 @@ export function ChartRenderer({ node }: ComponentRendererProps) {
             })}
           </>
         ) : (
-          data.map((value, index) => {
-            const barWidth = (width - 48) / Math.max(data.length, 1);
-            const barHeight = (value / max) * (height - 42);
-            return (
-              <rect
-                key={`${value}-${index}`}
-                x={22 + index * barWidth}
-                y={height - 16 - barHeight}
-                width={Math.max(10, barWidth - 10)}
-                height={barHeight}
-                rx="5"
-                fill="#e76f3c"
-                opacity="0.58"
-              />
-            );
-          })
+          <>
+            <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="#ece7e7" />
+            {data.map((value, index) => {
+              const barWidth = (width - 48) / Math.max(data.length, 1);
+              const barHeight = (value / max) * (height - 42);
+              return (
+                <rect
+                  key={`${value}-${index}`}
+                  x={22 + index * barWidth}
+                  y={height - 16 - barHeight}
+                  width={Math.max(10, barWidth - 10)}
+                  height={barHeight}
+                  rx="5"
+                  fill="#e76f3c"
+                  opacity="0.58"
+                />
+              );
+            })}
+          </>
         )}
       </svg>
-      <div className="chart-labels">
-        {labels.slice(0, 6).map((label) => (
-          <span key={label}>{label}</span>
-        ))}
-      </div>
+      {chartType !== "pie" ? (
+        <div className="chart-labels">
+          {labels.slice(0, 6).map((label) => (
+            <span key={label}>{label}</span>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function PieChart({ data, width, height }: { data: number[]; width: number; height: number }) {
+function PieChart({ data, labels, width, height }: { data: number[]; labels: string[]; width: number; height: number }) {
   const total = data.reduce((sum, value) => sum + Math.max(0, value), 0) || 1;
-  const radius = Math.max(42, Math.min(width, height) / 2 - 20);
+  const radius = Math.max(38, Math.min(width, height) / 2 - 26);
   const cx = width / 2;
   const cy = height / 2;
+  const colors = ["#e76f3c", "#f3b69b", "#f7d4c5", "#d88766", "#f0a37f", "#c96f54"];
   let angle = -90;
 
   return (
@@ -206,8 +215,21 @@ function PieChart({ data, width, height }: { data: number[]; width: number; heig
         const portion = Math.max(0, value) / total;
         const nextAngle = angle + portion * 360;
         const path = describeArc(cx, cy, radius, angle, nextAngle);
+        const labelAngle = angle + (nextAngle - angle) / 2;
+        const labelPoint = polarToCartesian(cx, cy, radius * 0.66, labelAngle);
+        const label = labels[index] ?? String(index + 1);
+        const percent = Math.round(portion * 100);
         angle = nextAngle;
-        return <path key={`${value}-${index}`} d={path} fill={index % 2 === 0 ? "#e76f3c" : "#f3b69b"} opacity="0.72" />;
+        return (
+          <g key={`${value}-${index}`}>
+            <path d={path} fill={colors[index % colors.length]} opacity="0.78" />
+            {percent >= 5 ? (
+              <text className="pie-slice-label" x={labelPoint.x} y={labelPoint.y} textAnchor="middle" dominantBaseline="middle">
+                {label} {percent}%
+              </text>
+            ) : null}
+          </g>
+        );
       })}
     </>
   );

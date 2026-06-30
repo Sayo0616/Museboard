@@ -17,6 +17,7 @@ type OperationActor = "agent" | "user";
 type WorkspaceState = {
   workspace: Workspace;
   selectedNodeIds: string[];
+  selectedEdgeIds: string[];
   messages: ChatMessage[];
   recentUserEvents: string[];
   mode: WorkspaceMode;
@@ -32,6 +33,7 @@ type WorkspaceState = {
   userEditLabel: string | null;
   saveState: "saved" | "dirty";
   selectNode: (nodeId: string | null, append?: boolean) => void;
+  selectEdge: (edgeId: string | null, append?: boolean) => void;
   setSelectedNodeIds: (nodeIds: string[]) => void;
   setMode: (mode: WorkspaceMode) => void;
   setAgentPermissionLevel: (level: AgentPermissionLevel) => void;
@@ -78,6 +80,7 @@ type StoreGet = () => WorkspaceState;
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspace: initialWorkspace,
   selectedNodeIds: ["slider_budget"],
+  selectedEdgeIds: [],
   messages: [
     {
       id: "message_welcome",
@@ -101,17 +104,36 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   saveState: "dirty",
   selectNode: (nodeId, append = false) => {
     set((state) => {
-      if (!nodeId) return state.selectedNodeIds.length === 0 ? state : { selectedNodeIds: [] };
+      if (!nodeId) {
+        return state.selectedNodeIds.length === 0 && state.selectedEdgeIds.length === 0
+          ? state
+          : { selectedNodeIds: [], selectedEdgeIds: [] };
+      }
       if (append) {
         const exists = state.selectedNodeIds.includes(nodeId);
         return {
           selectedNodeIds: exists
             ? state.selectedNodeIds.filter((id) => id !== nodeId)
             : [...state.selectedNodeIds, nodeId],
+          selectedEdgeIds: [],
         };
       }
       if (state.selectedNodeIds.length === 1 && state.selectedNodeIds[0] === nodeId) return state;
-      return { selectedNodeIds: [nodeId] };
+      return { selectedNodeIds: [nodeId], selectedEdgeIds: [] };
+    });
+  },
+  selectEdge: (edgeId, append = false) => {
+    set((state) => {
+      if (!edgeId) return state.selectedEdgeIds.length === 0 ? state : { selectedEdgeIds: [] };
+      if (append) {
+        const exists = state.selectedEdgeIds.includes(edgeId);
+        return {
+          selectedNodeIds: [],
+          selectedEdgeIds: exists ? state.selectedEdgeIds.filter((id) => id !== edgeId) : [...state.selectedEdgeIds, edgeId],
+        };
+      }
+      if (state.selectedEdgeIds.length === 1 && state.selectedEdgeIds[0] === edgeId) return state;
+      return { selectedNodeIds: [], selectedEdgeIds: [edgeId] };
     });
   },
   setSelectedNodeIds: (nodeIds) => {
@@ -120,7 +142,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       if (state.selectedNodeIds.length === uniqueNodeIds.length && state.selectedNodeIds.every((id, index) => id === uniqueNodeIds[index])) {
         return state;
       }
-      return { selectedNodeIds: uniqueNodeIds };
+      return { selectedNodeIds: uniqueNodeIds, selectedEdgeIds: [] };
     });
   },
   setMode: (mode) => set({ mode }),
@@ -196,7 +218,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       "user",
       `删除 ${selectedNodeIds.length} 个对象`,
     );
-    set({ selectedNodeIds: [] });
+    set({ selectedNodeIds: [], selectedEdgeIds: [] });
   },
   toggleLockSelectedNodes: () => {
     const state = get();
@@ -259,10 +281,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
   deleteEdgesForSelection: () => {
     const state = get();
-    if (state.selectedNodeIds.length === 0) return;
+    if (state.selectedNodeIds.length === 0 && state.selectedEdgeIds.length === 0) return;
     const selected = new Set(state.selectedNodeIds);
+    const selectedEdges = new Set(state.selectedEdgeIds);
     const edgeIds = getActivePage(state.workspace).edges
-      .filter((edge) => selected.has(edge.sourceNodeId) || selected.has(edge.targetNodeId))
+      .filter((edge) => selectedEdges.has(edge.id) || selected.has(edge.sourceNodeId) || selected.has(edge.targetNodeId))
       .map((edge) => edge.id);
     if (edgeIds.length === 0) return;
 
@@ -277,6 +300,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       "user",
       `删除 ${edgeIds.length} 条连接`,
     );
+    set({ selectedEdgeIds: [] });
   },
   exportWorkspaceJson: () => {
     const workspace = get().workspace;
@@ -359,13 +383,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         version: state.workspace.version + 1,
         updatedAt: nowIso(),
       };
-      return { ...commitWorkspaceState(state, nextWorkspace, "删除页面"), selectedNodeIds: [] };
+      return { ...commitWorkspaceState(state, nextWorkspace, "删除页面"), selectedNodeIds: [], selectedEdgeIds: [] };
     });
   },
   setActivePage: (pageId) => {
     set((state) => {
       if (!state.workspace.pages.some((page) => page.id === pageId)) return state;
-      return { workspace: { ...state.workspace, activePageId: pageId }, selectedNodeIds: [] };
+      return { workspace: { ...state.workspace, activePageId: pageId }, selectedNodeIds: [], selectedEdgeIds: [] };
     });
   },
   restoreVersion: (versionId) => {
@@ -377,6 +401,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       return {
         ...commitWorkspaceState(state, nextWorkspace, `恢复 ${snapshot.label}`),
         selectedNodeIds: [],
+        selectedEdgeIds: [],
         pendingResponse: null,
         lastAppliedResponse: null,
       };
@@ -521,6 +546,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         workspace: previous,
         past: state.past.slice(0, -1),
         future: [state.workspace, ...state.future],
+        selectedNodeIds: [],
+        selectedEdgeIds: [],
         userEditBase: null,
         userEditLabel: null,
         lastAppliedResponse: null,
@@ -536,6 +563,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         workspace: next,
         past: [...state.past, state.workspace],
         future: state.future.slice(1),
+        selectedNodeIds: [],
+        selectedEdgeIds: [],
         userEditBase: null,
         userEditLabel: null,
         lastAppliedResponse: null,
@@ -566,6 +595,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       userEditLabel: null,
       saveState: "saved",
       selectedNodeIds: [],
+      selectedEdgeIds: [],
     }));
   },
 }));

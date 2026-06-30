@@ -12,13 +12,22 @@ import type { CanvasNode } from "../workspace/workspaceTypes";
 const shapeUtils = [MuseboardNodeShapeUtil];
 const tools = [...defaultTools];
 
+type SelectionBox = {
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+};
+
 export function CanvasPanel() {
   const workspace = useWorkspaceStore((state) => state.workspace);
   const selectNode = useWorkspaceStore((state) => state.selectNode);
+  const selectEdge = useWorkspaceStore((state) => state.selectEdge);
   const moveNode = useWorkspaceStore((state) => state.moveNode);
   const resizeNode = useWorkspaceStore((state) => state.resizeNode);
   const mode = useWorkspaceStore((state) => state.mode);
   const selectedNodeIds = useWorkspaceStore((state) => state.selectedNodeIds);
+  const selectedEdgeIds = useWorkspaceStore((state) => state.selectedEdgeIds);
   const setSelectedNodeIds = useWorkspaceStore((state) => state.setSelectedNodeIds);
   const createEdgeFromSelection = useWorkspaceStore((state) => state.createEdgeFromSelection);
   const deleteEdgesForSelection = useWorkspaceStore((state) => state.deleteEdgesForSelection);
@@ -26,10 +35,14 @@ export function CanvasPanel() {
   const nodes = activePage.nodes;
   const edges = activePage.edges;
   const editorRef = useRef<Editor | null>(null);
+  const isSyncingTldrawRef = useRef(false);
   const modeRef = useRef(mode);
   const nodesRef = useRef(nodes);
+  const [editor, setEditor] = useState<Editor | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [viewportRevision, setViewportRevision] = useState(0);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -40,6 +53,7 @@ export function CanvasPanel() {
   }, [nodes]);
 
   const syncWorkspaceToTldraw = useCallback((editor: Editor, nextNodes: CanvasNode[]) => {
+    isSyncingTldrawRef.current = true;
     const currentMuseboardShapes = editor
       .getCurrentPageShapes()
       .filter((shape): shape is TLShape & { type: typeof museboardShapeType; props: { nodeId: string; w: number; h: number } } => {
@@ -51,39 +65,45 @@ export function CanvasPanel() {
     const staleShapeIds = currentMuseboardShapes
       .filter((shape) => !nodeIds.has(shape.props.nodeId))
       .map((shape) => shape.id);
-    if (staleShapeIds.length > 0) editor.deleteShapes(staleShapeIds);
+    try {
+      if (staleShapeIds.length > 0) editor.deleteShapes(staleShapeIds);
 
-    const shapesToCreate = nextNodes
-      .filter((node) => !existingIds.has(node.id))
-      .map((node) => ({
-        id: shapeIdForNode(node.id),
-        type: museboardShapeType,
-        x: node.position.x,
-        y: node.position.y,
-        rotation: ((node.position.rotation ?? 0) * Math.PI) / 180,
-        props: {
-          nodeId: node.id,
-          w: node.position.width,
-          h: node.position.height,
-        },
-      }));
-    if (shapesToCreate.length > 0) editor.createShapes(shapesToCreate);
+      const shapesToCreate = nextNodes
+        .filter((node) => !existingIds.has(node.id))
+        .map((node) => ({
+          id: shapeIdForNode(node.id),
+          type: museboardShapeType,
+          x: node.position.x,
+          y: node.position.y,
+          rotation: ((node.position.rotation ?? 0) * Math.PI) / 180,
+          props: {
+            nodeId: node.id,
+            w: node.position.width,
+            h: node.position.height,
+          },
+        }));
+      if (shapesToCreate.length > 0) editor.createShapes(shapesToCreate);
 
-    const shapesToUpdate = nextNodes
-      .filter((node) => existingIds.has(node.id))
-      .map((node) => ({
-        id: shapeIdForNode(node.id),
-        type: museboardShapeType,
-        x: node.position.x,
-        y: node.position.y,
-        rotation: ((node.position.rotation ?? 0) * Math.PI) / 180,
-        props: {
-          nodeId: node.id,
-          w: node.position.width,
-          h: node.position.height,
-        },
-      }));
-    if (shapesToUpdate.length > 0) editor.updateShapes(shapesToUpdate);
+      const shapesToUpdate = nextNodes
+        .filter((node) => existingIds.has(node.id))
+        .map((node) => ({
+          id: shapeIdForNode(node.id),
+          type: museboardShapeType,
+          x: node.position.x,
+          y: node.position.y,
+          rotation: ((node.position.rotation ?? 0) * Math.PI) / 180,
+          props: {
+            nodeId: node.id,
+            w: node.position.width,
+            h: node.position.height,
+          },
+        }));
+      if (shapesToUpdate.length > 0) editor.updateShapes(shapesToUpdate);
+    } finally {
+      queueMicrotask(() => {
+        isSyncingTldrawRef.current = false;
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -98,9 +118,53 @@ export function CanvasPanel() {
         onPointerDownCapture={(event) => {
           const target = event.target as HTMLElement;
           if (target.closest(".node-select-toggle")) return;
+          if (target.closest(".canvas-edge-hit")) return;
+          if (target.closest(".edge-controls")) return;
           const nodeElement = target.closest<HTMLElement>("[data-node-id]");
-          if (!nodeElement) return;
-          selectNode(nodeElement.dataset.nodeId ?? null, event.shiftKey || event.metaKey || event.ctrlKey);
+          if (nodeElement) {
+            selectNode(nodeElement.dataset.nodeId ?? null, event.shiftKey || event.metaKey || event.ctrlKey);
+            return;
+          }
+
+          if (event.button !== 0) return;
+          event.preventDefault();
+          event.stopPropagation();
+          selectNode(null);
+
+          const hostRect = event.currentTarget.getBoundingClientRect();
+          const start = { x: event.clientX - hostRect.left, y: event.clientY - hostRect.top };
+          const startScreen = { x: event.clientX, y: event.clientY };
+          setSelectionBox({ startX: start.x, startY: start.y, currentX: start.x, currentY: start.y });
+
+          const handleMove = (moveEvent: PointerEvent) => {
+            moveEvent.preventDefault();
+            setSelectionBox((current) =>
+              current
+                ? {
+                    ...current,
+                    currentX: moveEvent.clientX - hostRect.left,
+                    currentY: moveEvent.clientY - hostRect.top,
+                  }
+                : current,
+            );
+          };
+          const handleUp = (upEvent: PointerEvent) => {
+            upEvent.preventDefault();
+            window.removeEventListener("pointermove", handleMove, true);
+            window.removeEventListener("pointerup", handleUp, true);
+            setSelectionBox(null);
+
+            const distance = Math.hypot(upEvent.clientX - startScreen.x, upEvent.clientY - startScreen.y);
+            if (distance < 4 || !editorRef.current) return;
+
+            const startPage = editorRef.current.screenToPage(startScreen);
+            const endPage = editorRef.current.screenToPage({ x: upEvent.clientX, y: upEvent.clientY });
+            const bounds = normalizeBounds(startPage, endPage);
+            setSelectedNodeIds(nodesRef.current.filter((node) => intersectsNode(node, bounds)).map((node) => node.id));
+          };
+
+          window.addEventListener("pointermove", handleMove, true);
+          window.addEventListener("pointerup", handleUp, true);
         }}
       >
         <TldrawEditor
@@ -109,11 +173,19 @@ export function CanvasPanel() {
           initialState="select"
           onMount={(editor) => {
             editorRef.current = editor;
+            setEditor(editor);
             syncWorkspaceToTldraw(editor, nodes);
             setZoom(editor.getZoomLevel());
+            setViewportRevision((current) => current + 1);
 
             const removeListener = editor.store.listen(
               (entry) => {
+                if (isSyncingTldrawRef.current) {
+                  setZoom(editor.getZoomLevel());
+                  setViewportRevision((current) => current + 1);
+                  return;
+                }
+
                 const selectedNodeIdsFromEditor = editor
                   .getSelectedShapes()
                   .filter((shape): shape is TLShape & { type: typeof museboardShapeType; props: { nodeId: string } } => {
@@ -141,6 +213,7 @@ export function CanvasPanel() {
                   }
                 });
                 setZoom(editor.getZoomLevel());
+                setViewportRevision((current) => current + 1);
               },
               { source: "user", scope: "all" },
             );
@@ -148,6 +221,7 @@ export function CanvasPanel() {
             return () => {
               removeListener();
               editorRef.current = null;
+              setEditor(null);
             };
           }}
         />
@@ -155,9 +229,14 @@ export function CanvasPanel() {
           nodes={nodes}
           edges={edges}
           selectedNodeIds={selectedNodeIds}
+          selectedEdgeIds={selectedEdgeIds}
+          editor={editor}
+          viewportRevision={viewportRevision}
+          onSelectEdge={selectEdge}
           onCreateEdge={createEdgeFromSelection}
           onDeleteSelectedEdges={deleteEdgesForSelection}
         />
+        {selectionBox ? <div className="marquee-selection" style={selectionBoxStyle(selectionBox)} /> : null}
       </div>
 
       <div className={`floating-inspector ${inspectorCollapsed ? "collapsed" : ""}`}>
@@ -178,16 +257,41 @@ export function CanvasPanel() {
         onZoomIn={() => {
           editorRef.current?.zoomIn(undefined, { animation: { duration: 140 } });
           setZoom(editorRef.current?.getZoomLevel() ?? zoom);
+          setViewportRevision((current) => current + 1);
         }}
         onZoomOut={() => {
           editorRef.current?.zoomOut(undefined, { animation: { duration: 140 } });
           setZoom(editorRef.current?.getZoomLevel() ?? zoom);
+          setViewportRevision((current) => current + 1);
         }}
         onFit={() => {
           editorRef.current?.zoomToFit({ animation: { duration: 160 } });
           setZoom(editorRef.current?.getZoomLevel() ?? zoom);
+          setViewportRevision((current) => current + 1);
         }}
       />
     </div>
   );
+}
+
+function normalizeBounds(start: { x: number; y: number }, end: { x: number; y: number }) {
+  const x1 = Math.min(start.x, end.x);
+  const y1 = Math.min(start.y, end.y);
+  const x2 = Math.max(start.x, end.x);
+  const y2 = Math.max(start.y, end.y);
+  return { x1, y1, x2, y2 };
+}
+
+function intersectsNode(node: CanvasNode, bounds: ReturnType<typeof normalizeBounds>) {
+  const nodeX2 = node.position.x + node.position.width;
+  const nodeY2 = node.position.y + node.position.height;
+  return node.position.x <= bounds.x2 && nodeX2 >= bounds.x1 && node.position.y <= bounds.y2 && nodeY2 >= bounds.y1;
+}
+
+function selectionBoxStyle(box: SelectionBox) {
+  const left = Math.min(box.startX, box.currentX);
+  const top = Math.min(box.startY, box.currentY);
+  const width = Math.abs(box.currentX - box.startX);
+  const height = Math.abs(box.currentY - box.startY);
+  return { left, top, width, height };
 }

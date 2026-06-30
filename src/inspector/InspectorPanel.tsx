@@ -8,12 +8,55 @@ import { getAtPath } from "../utils/patch";
 export function InspectorPanel() {
   const workspace = useWorkspaceStore((state) => state.workspace);
   const selectedNodeIds = useWorkspaceStore((state) => state.selectedNodeIds);
+  const selectedEdgeIds = useWorkspaceStore((state) => state.selectedEdgeIds);
   const beginUserEdit = useWorkspaceStore((state) => state.beginUserEdit);
   const previewUserEdit = useWorkspaceStore((state) => state.previewUserEdit);
   const commitUserEdit = useWorkspaceStore((state) => state.commitUserEdit);
   const cancelUserEdit = useWorkspaceStore((state) => state.cancelUserEdit);
   const updateNode = useWorkspaceStore((state) => state.updateNode);
-  const selectedNode = getActivePage(workspace).nodes.find((node) => node.id === selectedNodeIds[0]);
+  const deleteEdgesForSelection = useWorkspaceStore((state) => state.deleteEdgesForSelection);
+  const activePage = getActivePage(workspace);
+  const selectedNode = activePage.nodes.find((node) => node.id === selectedNodeIds[0]);
+  const selectedEdge = activePage.edges.find((edge) => edge.id === selectedEdgeIds[0]);
+
+  if (!selectedNode && selectedEdge) {
+    const source = activePage.nodes.find((node) => node.id === selectedEdge.sourceNodeId);
+    const target = activePage.nodes.find((node) => node.id === selectedEdge.targetNodeId);
+
+    return (
+      <section className="inspector-panel">
+        <div className="panel-title">
+          <SlidersHorizontal size={15} />
+          <span>连接</span>
+        </div>
+
+        <div className="selected-summary">
+          <strong>{selectedEdge.label ?? selectedEdge.id}</strong>
+          <span>{selectedEdge.type}</span>
+        </div>
+
+        <div className="edge-inspector">
+          <dl>
+            <div>
+              <dt>起点</dt>
+              <dd>{source?.name ?? selectedEdge.sourceNodeId}</dd>
+            </div>
+            <div>
+              <dt>终点</dt>
+              <dd>{target?.name ?? selectedEdge.targetNodeId}</dd>
+            </div>
+            <div>
+              <dt>ID</dt>
+              <dd>{selectedEdge.id}</dd>
+            </div>
+          </dl>
+          <button className="permission-toggle" type="button" onClick={deleteEdgesForSelection}>
+            删除连接
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   if (!selectedNode) {
     return (
