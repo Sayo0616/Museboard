@@ -1,4 +1,4 @@
-import { Maximize2, Minus, MousePointer2, Plus, Redo2, Undo2 } from "lucide-react";
+import { Copy, Download, FileImage, FileText, LockKeyhole, Maximize2, Minus, MousePointer2, Plus, Redo2, Trash2, Undo2 } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Tooltip } from "../ui/Tooltip";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
@@ -14,6 +14,13 @@ export function CanvasToolbar({ zoom, onZoomIn, onZoomOut, onFit }: CanvasToolba
   const selectedNodeIds = useWorkspaceStore((state) => state.selectedNodeIds);
   const undo = useWorkspaceStore((state) => state.undo);
   const redo = useWorkspaceStore((state) => state.redo);
+  const duplicateSelectedNodes = useWorkspaceStore((state) => state.duplicateSelectedNodes);
+  const deleteSelectedNodes = useWorkspaceStore((state) => state.deleteSelectedNodes);
+  const toggleLockSelectedNodes = useWorkspaceStore((state) => state.toggleLockSelectedNodes);
+  const exportWorkspaceJson = useWorkspaceStore((state) => state.exportWorkspaceJson);
+  const exportWorkspacePng = useWorkspaceStore((state) => state.exportWorkspacePng);
+  const exportWorkspacePdf = useWorkspaceStore((state) => state.exportWorkspacePdf);
+  const hasSelection = selectedNodeIds.length > 0;
 
   return (
     <div className="canvas-toolbar">
@@ -40,6 +47,36 @@ export function CanvasToolbar({ zoom, onZoomIn, onZoomOut, onFit }: CanvasToolba
         </Tooltip>
       </div>
       <div className="toolbar-section">
+        <Tooltip label="复制选中对象">
+          <Button onClick={duplicateSelectedNodes} disabled={!hasSelection} aria-label="复制选中对象">
+            <Copy size={14} />
+          </Button>
+        </Tooltip>
+        <Tooltip label="删除选中对象">
+          <Button onClick={deleteSelectedNodes} disabled={!hasSelection} aria-label="删除选中对象">
+            <Trash2 size={14} />
+          </Button>
+        </Tooltip>
+        <Tooltip label="锁定或解锁 Agent 修改">
+          <Button onClick={toggleLockSelectedNodes} disabled={!hasSelection} aria-label="锁定或解锁 Agent 修改">
+            <LockKeyhole size={14} />
+          </Button>
+        </Tooltip>
+        <Tooltip label="导出 workspace JSON">
+          <Button onClick={exportWorkspaceJson} aria-label="导出 workspace JSON">
+            <Download size={14} />
+          </Button>
+        </Tooltip>
+        <Tooltip label="导出当前页面 PNG">
+          <Button onClick={() => void exportWorkspacePng()} aria-label="导出当前页面 PNG">
+            <FileImage size={14} />
+          </Button>
+        </Tooltip>
+        <Tooltip label="导出当前页面 PDF">
+          <Button onClick={exportWorkspacePdf} aria-label="导出当前页面 PDF">
+            <FileText size={14} />
+          </Button>
+        </Tooltip>
         <Tooltip label="撤销">
           <Button onClick={undo}>
             <Undo2 size={14} />

@@ -12,6 +12,10 @@ export type CanvasNodeType =
 
 export type WorkspaceMode = "edit" | "run" | "agent";
 
+export type AgentPermissionLevel = "suggest" | "auto_apply_safe" | "confirm_destructive" | "manual_only";
+
+export type AgentTransport = "local" | "http" | "sse" | "websocket";
+
 export type WorkspaceVariable = {
   type: "number" | "string" | "boolean";
   value: number | string | boolean;
@@ -82,6 +86,7 @@ export type Workspace = {
   id: string;
   title: string;
   version: number;
+  activePageId: string;
   pages: Page[];
   variables: Record<string, WorkspaceVariable>;
   dataSources: Record<string, unknown>;
@@ -94,4 +99,20 @@ export type ChatMessage = {
   role: "user" | "agent" | "system";
   text: string;
   createdAt: string;
+};
+
+export type VersionSnapshot = {
+  id: string;
+  version: number;
+  label: string;
+  createdAt: string;
+  workspace: Workspace;
+  diff: {
+    nodesAdded: number;
+    nodesRemoved: number;
+    nodesUpdated: number;
+    edgesAdded: number;
+    edgesRemoved: number;
+    variablesChanged: number;
+  };
 };

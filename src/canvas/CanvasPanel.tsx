@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { TldrawEditor, defaultTools, type Editor, type TLShape } from "tldraw";
 import { CanvasToolbar } from "./CanvasToolbar";
+import { CanvasEdgesLayer } from "./CanvasEdgesLayer";
 import { MuseboardNodeShapeUtil, museboardShapeType, shapeIdForNode } from "./TldrawNodeShape";
 import { InspectorPanel } from "../inspector/InspectorPanel";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
+import { getActivePage } from "../workspace/workspaceSelectors";
 import type { CanvasNode } from "../workspace/workspaceTypes";
 
 const shapeUtils = [MuseboardNodeShapeUtil];
@@ -12,12 +14,30 @@ const tools = [...defaultTools];
 
 export function CanvasPanel() {
   const workspace = useWorkspaceStore((state) => state.workspace);
+  const selectNode = useWorkspaceStore((state) => state.selectNode);
   const moveNode = useWorkspaceStore((state) => state.moveNode);
   const resizeNode = useWorkspaceStore((state) => state.resizeNode);
+  const mode = useWorkspaceStore((state) => state.mode);
+  const selectedNodeIds = useWorkspaceStore((state) => state.selectedNodeIds);
+  const setSelectedNodeIds = useWorkspaceStore((state) => state.setSelectedNodeIds);
+  const createEdgeFromSelection = useWorkspaceStore((state) => state.createEdgeFromSelection);
+  const deleteEdgesForSelection = useWorkspaceStore((state) => state.deleteEdgesForSelection);
+  const activePage = getActivePage(workspace);
+  const nodes = activePage.nodes;
+  const edges = activePage.edges;
   const editorRef = useRef<Editor | null>(null);
+  const modeRef = useRef(mode);
+  const nodesRef = useRef(nodes);
   const [zoom, setZoom] = useState(1);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
-  const nodes = workspace.pages[0].nodes;
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
 
   const syncWorkspaceToTldraw = useCallback((editor: Editor, nextNodes: CanvasNode[]) => {
     const currentMuseboardShapes = editor
@@ -73,7 +93,16 @@ export function CanvasPanel() {
 
   return (
     <div className="canvas-panel">
-      <div className="tldraw-host">
+      <div
+        className="tldraw-host"
+        onPointerDownCapture={(event) => {
+          const target = event.target as HTMLElement;
+          if (target.closest(".node-select-toggle")) return;
+          const nodeElement = target.closest<HTMLElement>("[data-node-id]");
+          if (!nodeElement) return;
+          selectNode(nodeElement.dataset.nodeId ?? null, event.shiftKey || event.metaKey || event.ctrlKey);
+        }}
+      >
         <TldrawEditor
           shapeUtils={shapeUtils}
           tools={tools}
@@ -85,10 +114,24 @@ export function CanvasPanel() {
 
             const removeListener = editor.store.listen(
               (entry) => {
+                const selectedNodeIdsFromEditor = editor
+                  .getSelectedShapes()
+                  .filter((shape): shape is TLShape & { type: typeof museboardShapeType; props: { nodeId: string } } => {
+                    return shape.type === museboardShapeType;
+                  })
+                  .map((shape) => shape.props.nodeId);
+                if (selectedNodeIdsFromEditor.length > 0) {
+                  setSelectedNodeIds(selectedNodeIdsFromEditor);
+                }
+
                 Object.values(entry.changes.updated).forEach(([from, to]) => {
                   if (from.typeName !== "shape" || to.typeName !== "shape") return;
                   if (from.type !== museboardShapeType || to.type !== museboardShapeType) return;
                   const shape = to as TLShape & { props: { nodeId: string; w: number; h: number } };
+                  if (modeRef.current === "run") {
+                    syncWorkspaceToTldraw(editor, nodesRef.current);
+                    return;
+                  }
                   const previousShape = from as TLShape & { props: { w: number; h: number } };
                   const didResize = previousShape.props.w !== shape.props.w || previousShape.props.h !== shape.props.h;
                   if (didResize) {
@@ -99,7 +142,7 @@ export function CanvasPanel() {
                 });
                 setZoom(editor.getZoomLevel());
               },
-              { source: "user", scope: "document" },
+              { source: "user", scope: "all" },
             );
 
             return () => {
@@ -107,6 +150,13 @@ export function CanvasPanel() {
               editorRef.current = null;
             };
           }}
+        />
+        <CanvasEdgesLayer
+          nodes={nodes}
+          edges={edges}
+          selectedNodeIds={selectedNodeIds}
+          onCreateEdge={createEdgeFromSelection}
+          onDeleteSelectedEdges={deleteEdgesForSelection}
         />
       </div>
 

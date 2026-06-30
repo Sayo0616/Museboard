@@ -1,6 +1,93 @@
 import type { AgentResponse } from "./agentProtocol";
 import type { WorkspaceContext } from "../workspace/contextBuilder";
+import type { AgentTransport } from "../workspace/workspaceTypes";
 import { createId, nowIso } from "../utils/id";
+
+type RunAgentOptions = {
+  transport: AgentTransport;
+  endpoint?: string;
+};
+
+export async function runAgent(message: string, context: WorkspaceContext, options: RunAgentOptions): Promise<AgentResponse> {
+  if (options.transport === "local") {
+    return runLocalAgent(message, context);
+  }
+
+  const endpoint = options.endpoint?.trim();
+  if (!endpoint) {
+    throw new Error("未配置 Agent endpoint。");
+  }
+
+  if (options.transport === "http") {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, context }),
+    });
+    if (!response.ok) {
+      throw new Error(`Agent HTTP 请求失败：${response.status}`);
+    }
+    return (await response.json()) as AgentResponse;
+  }
+
+  if (options.transport === "websocket") {
+    return runWebSocketAgent(endpoint, message, context);
+  }
+
+  return runSseAgent(endpoint, message, context);
+}
+
+function runSseAgent(endpoint: string, message: string, context: WorkspaceContext): Promise<AgentResponse> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(endpoint, window.location.href);
+    url.searchParams.set("message", message);
+    url.searchParams.set("context", JSON.stringify(context));
+
+    const source = new EventSource(url.toString());
+    const timeout = window.setTimeout(() => {
+      source.close();
+      reject(new Error("Agent SSE 响应超时。"));
+    }, 30000);
+
+    source.onmessage = (event) => {
+      window.clearTimeout(timeout);
+      source.close();
+      resolve(JSON.parse(event.data) as AgentResponse);
+    };
+
+    source.onerror = () => {
+      window.clearTimeout(timeout);
+      source.close();
+      reject(new Error("Agent SSE 连接失败。"));
+    };
+  });
+}
+
+function runWebSocketAgent(endpoint: string, message: string, context: WorkspaceContext): Promise<AgentResponse> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(endpoint);
+    const timeout = window.setTimeout(() => {
+      socket.close();
+      reject(new Error("Agent WebSocket 响应超时。"));
+    }, 30000);
+
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ message, context }));
+    };
+
+    socket.onmessage = (event) => {
+      window.clearTimeout(timeout);
+      socket.close();
+      resolve(JSON.parse(event.data) as AgentResponse);
+    };
+
+    socket.onerror = () => {
+      window.clearTimeout(timeout);
+      socket.close();
+      reject(new Error("Agent WebSocket 连接失败。"));
+    };
+  });
+}
 
 export async function runLocalAgent(message: string, context: WorkspaceContext): Promise<AgentResponse> {
   const normalized = message.trim().toLowerCase();
@@ -110,14 +197,16 @@ export async function runLocalAgent(message: string, context: WorkspaceContext):
     };
   }
 
-  if (normalized.includes("优化") && context.selectedNodeIds.length > 0) {
+  const referencedNodeIds = [...context.selectedNodes, ...context.mentionedNodes].map((node) => node.id);
+
+  if ((normalized.includes("优化") || context.mentionedNodes.length > 0) && referencedNodeIds.length > 0) {
     return {
-      message: "已优化选中组件的命名与说明。",
-      operations: context.selectedNodeIds.map((nodeId) => ({
+      message: context.mentionedNodes.length > 0 ? "已更新引用对象。" : "已优化选中组件的命名与说明。",
+      operations: [...new Set(referencedNodeIds)].map((nodeId) => ({
         type: "update_node",
         nodeId,
         patch: {
-          "props.detail": "已根据当前选区做轻量优化。",
+          "props.detail": context.mentionedNodes.length > 0 ? "已根据 @ 引用做轻量更新。" : "已根据当前选区做轻量优化。",
         },
       })),
     };

@@ -12,8 +12,10 @@ import {
   type TLShapeId,
   useEditor,
 } from "tldraw";
+import { CheckSquare } from "lucide-react";
 import { CanvasNodeContent } from "./CanvasNodeContent";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
+import { getActivePage } from "../workspace/workspaceSelectors";
 
 export const museboardShapeType = "museboard-node" as const;
 const minNodeWidth = 80;
@@ -90,8 +92,9 @@ export class MuseboardNodeShapeUtil extends ShapeUtil<MuseboardShape> {
 }
 
 function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
-  const node = useWorkspaceStore((state) => state.workspace.pages[0].nodes.find((item) => item.id === shape.props.nodeId));
+  const node = useWorkspaceStore((state) => getActivePage(state.workspace).nodes.find((item) => item.id === shape.props.nodeId));
   const isSelected = useWorkspaceStore((state) => state.selectedNodeIds.includes(shape.props.nodeId));
+  const mode = useWorkspaceStore((state) => state.mode);
   const selectNode = useWorkspaceStore((state) => state.selectNode);
   const beginUserEdit = useWorkspaceStore((state) => state.beginUserEdit);
   const previewUserEdit = useWorkspaceStore((state) => state.previewUserEdit);
@@ -106,14 +109,34 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
     );
   }
 
+  const layoutLocked = mode === "run";
+  const agentLocked = node.permissions?.agentEditable === false;
+
   return (
-    <HTMLContainer className={`tldraw-node-host node-${node.type}`} onPointerDownCapture={() => selectNode(node.id)}>
-      <div className={`canvas-node tldraw-node-shell ${isSelected ? "selected" : ""}`} style={{ width: shape.props.w, height: shape.props.h }}>
+    <HTMLContainer
+      className={`tldraw-node-host node-${node.type}`}
+      onPointerDownCapture={(event) => {
+        if ((event.target as HTMLElement).closest(".node-select-toggle")) return;
+        selectNode(node.id, event.shiftKey || event.metaKey || event.ctrlKey);
+      }}
+      onClickCapture={(event) => {
+        if ((event.target as HTMLElement).closest(".node-select-toggle")) return;
+        selectNode(node.id, event.shiftKey || event.metaKey || event.ctrlKey);
+      }}
+    >
+      <div
+        data-node-id={node.id}
+        className={`canvas-node tldraw-node-shell ${isSelected ? "selected" : ""} ${layoutLocked ? "layout-locked" : ""} ${
+          agentLocked ? "agent-locked" : ""
+        }`}
+        style={{ width: shape.props.w, height: shape.props.h }}
+      >
         <div
           className="node-drag-handle"
           onPointerDown={(event) => {
+            if (layoutLocked) return;
             event.stopPropagation();
-            selectNode(node.id);
+            selectNode(node.id, event.shiftKey || event.metaKey || event.ctrlKey);
             const eventLabel = `移动 ${node.id}`;
             beginUserEdit(eventLabel);
             const start = {
@@ -152,12 +175,30 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
           }}
         >
           <span>{node.name}</span>
-          <span className="node-type">{node.type}</span>
+          <span className="node-header-actions">
+            <button
+              className="node-select-toggle"
+              type="button"
+              aria-label={`切换选择 ${node.name}`}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                selectNode(node.id, true);
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+            >
+              <CheckSquare size={12} />
+            </button>
+            <span className="node-type">{node.type}</span>
+          </span>
         </div>
         <div className="node-body" onPointerDown={(event) => event.stopPropagation()}>
           <CanvasNodeContent node={node} />
         </div>
-        {resizeHandles.map((handle) => (
+        {!layoutLocked ? resizeHandles.map((handle) => (
           <button
             key={handle}
             className={`node-resize-handle ${handle}`}
@@ -166,7 +207,7 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
             onPointerDown={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              selectNode(node.id);
+              selectNode(node.id, event.shiftKey || event.metaKey || event.ctrlKey);
               const eventLabel = `缩放 ${node.id}`;
               beginUserEdit(eventLabel);
               const start = {
@@ -207,7 +248,7 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
               dragTarget.addEventListener("pointerup", handleUp, true);
             }}
           />
-        ))}
+        )) : null}
       </div>
     </HTMLContainer>
   );
