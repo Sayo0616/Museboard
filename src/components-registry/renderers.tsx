@@ -1,30 +1,130 @@
-import { Check, MousePointerClick } from "lucide-react";
-import type { PointerEvent } from "react";
+import { Check, GripHorizontal, GripVertical, MousePointerClick } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent } from "react";
 import type { CanvasNode } from "../workspace/workspaceTypes";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
+import { composeMarkdownSource, renderMarkdown, splitMarkdownSource } from "./markdown";
 
 export type ComponentRendererProps = {
   node: CanvasNode;
 };
 
+type TableCellRef = {
+  row: number;
+  column: number;
+};
+
+type TableCellSelection = {
+  anchor: TableCellRef;
+  focus: TableCellRef;
+};
+
+type TableMerge = {
+  row: number;
+  column: number;
+  rowSpan: number;
+  colSpan: number;
+};
+
+type TableMenuState =
+  | {
+      type: "row";
+      row: number;
+      x: number;
+      y: number;
+    }
+  | {
+      type: "column";
+      column: number;
+      x: number;
+      y: number;
+    }
+  | {
+      type: "cell";
+      row: number;
+      column: number;
+      x: number;
+      y: number;
+    };
+
 export function TextRenderer({ node }: ComponentRendererProps) {
   const updateNode = useWorkspaceStore((state) => state.updateNode);
   const mode = useWorkspaceStore((state) => state.mode);
   const disabled = mode === "run";
+  const markdownSource = useMemo(() => composeMarkdownSource(node), [node]);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(markdownSource);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setDraft(markdownSource);
+    }
+  }, [isEditing, markdownSource]);
+
+  const startEditing = () => {
+    if (disabled) return;
+    setDraft(markdownSource);
+    setIsEditing(true);
+  };
+
+  const commitMarkdown = () => {
+    if (!isEditing) return;
+    const parsed = splitMarkdownSource(draft);
+    setIsEditing(false);
+    updateNode(
+      node.id,
+      {
+        "props.title": parsed.title,
+        "props.text": parsed.text,
+      },
+      `${node.name} Markdown 已更新`,
+    );
+  };
+
+  const cancelMarkdown = () => {
+    setDraft(markdownSource);
+    setIsEditing(false);
+  };
 
   return (
-    <div className="text-node">
-      <input
-        className="node-title-input"
-        value={String(node.props.title ?? node.name)}
-        disabled={disabled}
-        onChange={(event) => updateNode(node.id, { "props.title": event.target.value }, `${node.name} 标题已更新`)}
-      />
-      <textarea
-        value={String(node.props.text ?? "")}
-        disabled={disabled}
-        onChange={(event) => updateNode(node.id, { "props.text": event.target.value }, `${node.name} 文本已更新`)}
-      />
+    <div className={`text-node ${isEditing ? "editing" : ""}`}>
+      {isEditing && !disabled ? (
+        <textarea
+          autoFocus
+          className="markdown-editor"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commitMarkdown}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              commitMarkdown();
+              event.currentTarget.blur();
+            }
+
+            if (event.key === "Escape") {
+              event.preventDefault();
+              cancelMarkdown();
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      ) : (
+        <div
+          className="markdown-preview"
+          role="textbox"
+          tabIndex={disabled ? -1 : 0}
+          aria-readonly={disabled}
+          onDoubleClick={startEditing}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === "F2") {
+              event.preventDefault();
+              startEditing();
+            }
+          }}
+        >
+          {renderMarkdown(markdownSource)}
+        </div>
+      )}
     </div>
   );
 }
@@ -291,39 +391,621 @@ export function FlowchartRenderer({ node }: ComponentRendererProps) {
 export function TableRenderer({ node }: ComponentRendererProps) {
   const updateNode = useWorkspaceStore((state) => state.updateNode);
   const mode = useWorkspaceStore((state) => state.mode);
-  const columns = Array.isArray(node.props.columns) ? (node.props.columns as string[]) : [];
-  const rows = Array.isArray(node.props.rows) ? (node.props.rows as string[][]) : [];
+  const disabled = mode === "run";
+  const columns = normalizeTableColumns(node.props.columns, node.props.rows);
+  const rows = normalizeTableRows(node.props.rows, columns.length);
+  const merges = normalizeTableMerges(node.props.merges, rows.length, columns.length);
+  const [selection, setSelection] = useState<TableCellSelection | null>(null);
+  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+  const [hoveredColumn, setHoveredColumn] = useState<number | null>(null);
+  const [menu, setMenu] = useState<TableMenuState | null>(null);
+  const skipCellFocusRef = useRef(false);
+  const dragStateRef = useRef<{
+    kind: "row" | "column";
+    from: number;
+    started: boolean;
+    timeoutId: number;
+  } | null>(null);
+  const selectedBounds = selection ? getSelectionBounds(selection) : null;
+  const selectedRow = selection?.focus.row ?? 0;
+  const selectedColumn = selection?.focus.column ?? 0;
+
+  useEffect(() => {
+    if (!selection) return;
+    const maxRow = rows.length - 1;
+    const maxColumn = columns.length - 1;
+    if (maxRow < 0 || maxColumn < 0) {
+      setSelection(null);
+      return;
+    }
+    const nextSelection = {
+      anchor: {
+        row: clampIndex(selection.anchor.row, maxRow),
+        column: clampIndex(selection.anchor.column, maxColumn),
+      },
+      focus: {
+        row: clampIndex(selection.focus.row, maxRow),
+        column: clampIndex(selection.focus.column, maxColumn),
+      },
+    };
+    if (
+      nextSelection.anchor.row !== selection.anchor.row ||
+      nextSelection.anchor.column !== selection.anchor.column ||
+      nextSelection.focus.row !== selection.focus.row ||
+      nextSelection.focus.column !== selection.focus.column
+    ) {
+      setSelection(nextSelection);
+    }
+  }, [columns.length, rows.length, selection]);
+
+  const selectCell = (cell: TableCellRef, appendRange: boolean) => {
+    setMenu(null);
+    setSelection((current) => ({
+      anchor: appendRange && current ? current.anchor : cell,
+      focus: cell,
+    }));
+  };
+
+  const selectRow = (rowIndex: number) => {
+    setMenu(null);
+    setSelection({
+      anchor: { row: rowIndex, column: 0 },
+      focus: { row: rowIndex, column: Math.max(0, columns.length - 1) },
+    });
+  };
+
+  const selectColumn = (columnIndex: number) => {
+    setMenu(null);
+    setSelection({
+      anchor: { row: 0, column: columnIndex },
+      focus: { row: Math.max(0, rows.length - 1), column: columnIndex },
+    });
+  };
+
+  const getMenuPoint = (event: ReactMouseEvent<HTMLElement>) => {
+    const tableRoot = event.currentTarget.closest(".table-node-content");
+    const rect = tableRoot?.getBoundingClientRect();
+    return {
+      x: rect ? event.clientX - rect.left : event.clientX,
+      y: rect ? event.clientY - rect.top : event.clientY,
+    };
+  };
+
+  const patchTable = (patch: Record<string, unknown>, label: string) => {
+    updateNode(node.id, patch, `${node.name} ${label}`);
+  };
+
+  const patchTableState = (nextColumns: string[], nextRows: string[][], nextMerges: TableMerge[], label: string) => {
+    patchTable(
+      {
+        "props.columns": nextColumns,
+        "props.rows": nextRows,
+        "props.merges": nextMerges,
+      },
+      label,
+    );
+  };
+
+  const updateCell = (rowIndex: number, columnIndex: number, value: string) => {
+    const nextRows = rows.map((row) => [...row]);
+    nextRows[rowIndex][columnIndex] = value;
+    patchTable({ "props.rows": nextRows }, "表格内容已更新");
+  };
+
+  const updateColumn = (columnIndex: number, value: string) => {
+    const nextColumns = [...columns];
+    nextColumns[columnIndex] = value;
+    patchTable({ "props.columns": nextColumns }, "表头已更新");
+  };
+
+  const insertRowAt = (insertAt: number) => {
+    const nextRows = [...rows.slice(0, insertAt), createEmptyTableRow(columns.length), ...rows.slice(insertAt)];
+    const nextMerges = merges.map((merge) => (merge.row >= insertAt ? { ...merge, row: merge.row + 1 } : merge));
+    patchTableState(columns, nextRows, nextMerges, "已插入行");
+    setSelection({ anchor: { row: insertAt, column: 0 }, focus: { row: insertAt, column: 0 } });
+  };
+
+  const insertColumnAt = (insertAt: number) => {
+    const nextColumns = [...columns.slice(0, insertAt), `列 ${insertAt + 1}`, ...columns.slice(insertAt)];
+    const nextRows = rows.map((row) => [...row.slice(0, insertAt), "", ...row.slice(insertAt)]);
+    const nextMerges = merges.map((merge) => (merge.column >= insertAt ? { ...merge, column: merge.column + 1 } : merge));
+    patchTableState(nextColumns, nextRows, nextMerges, "已插入列");
+    setSelection({ anchor: { row: 0, column: insertAt }, focus: { row: 0, column: insertAt } });
+  };
+
+  const moveRow = (fromIndex: number, toIndex: number) => {
+    if (toIndex < 0 || toIndex >= rows.length) return;
+    if (fromIndex === toIndex) return;
+    const nextRows = moveArrayItem(rows, fromIndex, toIndex);
+    const nextMerges = remapTableMerges(merges, { rowMap: createMovedIndexMap(rows.length, fromIndex, toIndex) });
+    patchTableState(columns, nextRows, nextMerges, "已移动行");
+    setSelection({ anchor: { row: toIndex, column: selectedColumn }, focus: { row: toIndex, column: selectedColumn } });
+  };
+
+  const moveColumn = (fromIndex: number, toIndex: number) => {
+    if (toIndex < 0 || toIndex >= columns.length) return;
+    if (fromIndex === toIndex) return;
+    const nextColumns = moveArrayItem(columns, fromIndex, toIndex);
+    const nextRows = rows.map((row) => moveArrayItem(row, fromIndex, toIndex));
+    const nextMerges = remapTableMerges(merges, { columnMap: createMovedIndexMap(columns.length, fromIndex, toIndex) });
+    patchTableState(nextColumns, nextRows, nextMerges, "已移动列");
+    setSelection({ anchor: { row: selectedRow, column: toIndex }, focus: { row: selectedRow, column: toIndex } });
+  };
+
+  const startHandleDrag = (kind: "row" | "column", from: number, event: PointerEvent<HTMLButtonElement>) => {
+    if (disabled || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (kind === "row") {
+      selectRow(from);
+    } else {
+      selectColumn(from);
+    }
+
+    const dragTarget = event.currentTarget.ownerDocument;
+    const timeoutId = window.setTimeout(() => {
+      if (dragStateRef.current) dragStateRef.current.started = true;
+    }, 180);
+    dragStateRef.current = { kind, from, started: false, timeoutId };
+
+    const handleMove = (moveEvent: globalThis.PointerEvent) => {
+      const state = dragStateRef.current;
+      if (!state?.started) return;
+      moveEvent.preventDefault();
+      const target = dragTarget.elementFromPoint(moveEvent.clientX, moveEvent.clientY) as HTMLElement | null;
+      const nextIndex =
+        state.kind === "row"
+          ? Number(target?.closest("[data-table-row-index]")?.getAttribute("data-table-row-index"))
+          : Number(target?.closest("[data-table-column-index]")?.getAttribute("data-table-column-index"));
+      if (!Number.isInteger(nextIndex)) return;
+      if (state.kind === "row") {
+        setHoveredRow(nextIndex);
+      } else {
+        setHoveredColumn(nextIndex);
+      }
+    };
+
+    const handleUp = (upEvent: globalThis.PointerEvent) => {
+      const state = dragStateRef.current;
+      if (!state) return;
+      window.clearTimeout(state.timeoutId);
+      dragTarget.removeEventListener("pointermove", handleMove, true);
+      dragTarget.removeEventListener("pointerup", handleUp, true);
+      dragTarget.removeEventListener("pointercancel", handleUp, true);
+      dragStateRef.current = null;
+
+      if (!state.started) return;
+      upEvent.preventDefault();
+      const target = dragTarget.elementFromPoint(upEvent.clientX, upEvent.clientY) as HTMLElement | null;
+      const nextIndex =
+        state.kind === "row"
+          ? Number(target?.closest("[data-table-row-index]")?.getAttribute("data-table-row-index"))
+          : Number(target?.closest("[data-table-column-index]")?.getAttribute("data-table-column-index"));
+      if (!Number.isInteger(nextIndex)) return;
+      if (state.kind === "row") {
+        moveRow(state.from, nextIndex);
+      } else {
+        moveColumn(state.from, nextIndex);
+      }
+    };
+
+    dragTarget.addEventListener("pointermove", handleMove, true);
+    dragTarget.addEventListener("pointerup", handleUp, true);
+    dragTarget.addEventListener("pointercancel", handleUp, true);
+  };
+
+  const mergeBounds = (bounds: ReturnType<typeof getSelectionBounds>) => {
+    const rowSpan = bounds.maxRow - bounds.minRow + 1;
+    const colSpan = bounds.maxColumn - bounds.minColumn + 1;
+    if (rowSpan < 2 && colSpan < 2) return;
+
+    const nextRows = rows.map((row) => [...row]);
+    const values: string[] = [];
+    for (let rowIndex = bounds.minRow; rowIndex <= bounds.maxRow; rowIndex += 1) {
+      for (let columnIndex = bounds.minColumn; columnIndex <= bounds.maxColumn; columnIndex += 1) {
+        const value = nextRows[rowIndex]?.[columnIndex]?.trim();
+        if (value) values.push(value);
+        if (rowIndex !== bounds.minRow || columnIndex !== bounds.minColumn) {
+          nextRows[rowIndex][columnIndex] = "";
+        }
+      }
+    }
+    if (!nextRows[bounds.minRow][bounds.minColumn].trim() && values.length > 0) {
+      nextRows[bounds.minRow][bounds.minColumn] = values[0];
+    }
+
+    const nextMerge = {
+      row: bounds.minRow,
+      column: bounds.minColumn,
+      rowSpan,
+      colSpan,
+    };
+    const nextMerges = [
+      ...merges.filter((merge) => !doesMergeIntersectBounds(merge, bounds)),
+      nextMerge,
+    ];
+    patchTableState(columns, nextRows, nextMerges, "已合并单元格");
+    setSelection({
+      anchor: { row: bounds.minRow, column: bounds.minColumn },
+      focus: { row: bounds.minRow, column: bounds.minColumn },
+    });
+  };
+
+  const mergeSelection = () => {
+    if (!selectedBounds) return;
+    mergeBounds(selectedBounds);
+  };
+
+  const mergeRight = (row: number, column: number) => {
+    if (column >= columns.length - 1) return;
+    mergeBounds({ minRow: row, maxRow: row, minColumn: column, maxColumn: column + 1 });
+  };
+
+  const mergeDown = (row: number, column: number) => {
+    if (row >= rows.length - 1) return;
+    mergeBounds({ minRow: row, maxRow: row + 1, minColumn: column, maxColumn: column });
+  };
+
+  const unmergeSelection = () => {
+    if (!selectedBounds) return;
+    const nextMerges = merges.filter((merge) => !doesMergeIntersectBounds(merge, selectedBounds));
+    if (nextMerges.length === merges.length) return;
+    patchTable({ "props.merges": nextMerges }, "已拆分单元格");
+  };
+
+  const mergeCountInSelection = selectedBounds ? merges.filter((merge) => doesMergeIntersectBounds(merge, selectedBounds)).length : 0;
+  const canMerge = Boolean(selectedBounds && (selectedBounds.minRow !== selectedBounds.maxRow || selectedBounds.minColumn !== selectedBounds.maxColumn));
+  const selectedRowSet = selectedBounds ? new Set(range(selectedBounds.minRow, selectedBounds.maxRow)) : new Set<number>();
+  const selectedColumnSet = selectedBounds ? new Set(range(selectedBounds.minColumn, selectedBounds.maxColumn)) : new Set<number>();
 
   return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          {columns.map((column) => (
-            <th key={column}>{column}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, rowIndex) => (
-          <tr key={`${row.join("-")}-${rowIndex}`}>
-            {row.map((cell, cellIndex) => (
-              <td key={`${cell}-${cellIndex}`}>
-                <input
-                  value={cell}
-                  disabled={mode === "run"}
-                  onChange={(event) => {
-                    const nextRows = rows.map((item) => [...item]);
-                    nextRows[rowIndex][cellIndex] = event.target.value;
-                    updateNode(node.id, { "props.rows": nextRows }, `${node.name} 表格已更新`);
-                  }}
-                />
-              </td>
+    <div className="table-node-content" onPointerDown={() => setMenu(null)}>
+      <div className="table-scroll">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th className="table-corner-cell">
+                <span className="table-selection-label">{formatTableSelectionLabel(selection)}</span>
+              </th>
+              {columns.map((column, columnIndex) => (
+                <th
+                  key={`${column}-${columnIndex}`}
+                  className={`${selectedColumnSet.has(columnIndex) ? "selected-column" : ""} ${
+                    hoveredColumn === columnIndex ? "hovered-column" : ""
+                  }`}
+                  data-table-column-index={columnIndex}
+                  onMouseEnter={() => setHoveredColumn(columnIndex)}
+                  onMouseLeave={() => setHoveredColumn((current) => (current === columnIndex ? null : current))}
+                >
+                  <button
+                    className="table-column-handle"
+                    type="button"
+                    aria-label={`选择第 ${columnIndex + 1} 列`}
+                    disabled={disabled}
+                    onPointerDown={(event) => startHandleDrag("column", columnIndex, event)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      selectColumn(columnIndex);
+                      setMenu({ type: "column", column: columnIndex, ...getMenuPoint(event) });
+                    }}
+                  >
+                    <GripHorizontal size={13} />
+                  </button>
+                  <input
+                    aria-label={`编辑第 ${columnIndex + 1} 列表头`}
+                    value={column}
+                    disabled={disabled}
+                    onFocus={() => selectCell({ row: selectedRow, column: columnIndex }, false)}
+                    onChange={(event) => updateColumn(columnIndex, event.target.value)}
+                  />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr
+                key={`${row.join("-")}-${rowIndex}`}
+                className={`${selectedRowSet.has(rowIndex) ? "selected-row" : ""} ${hoveredRow === rowIndex ? "hovered-row" : ""}`}
+                data-table-row-index={rowIndex}
+                onMouseEnter={() => setHoveredRow(rowIndex)}
+                onMouseLeave={() => setHoveredRow((current) => (current === rowIndex ? null : current))}
+              >
+                <td className="table-row-control">
+                  <button
+                    className="table-row-handle"
+                    type="button"
+                    aria-label={`选择第 ${rowIndex + 1} 行`}
+                    disabled={disabled}
+                    onPointerDown={(event) => startHandleDrag("row", rowIndex, event)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      selectRow(rowIndex);
+                      setMenu({ type: "row", row: rowIndex, ...getMenuPoint(event) });
+                    }}
+                  >
+                    <GripVertical size={13} />
+                  </button>
+                </td>
+                {row.map((cell, columnIndex) => {
+                  if (isCellCoveredByMerge(merges, rowIndex, columnIndex)) return null;
+                  const merge = getMergeAnchor(merges, rowIndex, columnIndex);
+                  const isSelected = selectedBounds ? isCellWithinBounds(rowIndex, columnIndex, selectedBounds) : false;
+                  return (
+                    <td
+                      key={`${rowIndex}-${columnIndex}`}
+                      className={`${isSelected ? "selected-cell" : ""} ${merge ? "merged-cell" : ""}`}
+                      rowSpan={merge?.rowSpan}
+                      colSpan={merge?.colSpan}
+                      onPointerDownCapture={(event) => {
+                        skipCellFocusRef.current = true;
+                        selectCell({ row: rowIndex, column: columnIndex }, event.shiftKey);
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const isInsideSelection = selectedBounds ? isCellWithinBounds(rowIndex, columnIndex, selectedBounds) : false;
+                        if (!isInsideSelection) {
+                          selectCell({ row: rowIndex, column: columnIndex }, event.shiftKey);
+                        }
+                        setMenu({ type: "cell", row: rowIndex, column: columnIndex, ...getMenuPoint(event) });
+                      }}
+                    >
+                      <input
+                        aria-label={`编辑第 ${rowIndex + 1} 行第 ${columnIndex + 1} 列`}
+                        value={cell}
+                        disabled={disabled}
+                        onFocus={() => {
+                          if (skipCellFocusRef.current) {
+                            skipCellFocusRef.current = false;
+                            return;
+                          }
+                          selectCell({ row: rowIndex, column: columnIndex }, false);
+                        }}
+                        onChange={(event) => updateCell(rowIndex, columnIndex, event.target.value)}
+                      />
+                    </td>
+                  );
+                })}
+              </tr>
             ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+          </tbody>
+        </table>
+      </div>
+      {menu ? (
+        <TableContextMenu
+          menu={menu}
+          rows={rows.length}
+          columns={columns.length}
+          canMerge={canMerge}
+          canUnmerge={mergeCountInSelection > 0}
+          onClose={() => setMenu(null)}
+          onInsertRowBefore={(row) => insertRowAt(row)}
+          onInsertRowAfter={(row) => insertRowAt(row + 1)}
+          onMoveRowUp={(row) => moveRow(row, row - 1)}
+          onMoveRowDown={(row) => moveRow(row, row + 1)}
+          onInsertColumnBefore={(column) => insertColumnAt(column)}
+          onInsertColumnAfter={(column) => insertColumnAt(column + 1)}
+          onMoveColumnLeft={(column) => moveColumn(column, column - 1)}
+          onMoveColumnRight={(column) => moveColumn(column, column + 1)}
+          onMerge={mergeSelection}
+          onMergeDown={mergeDown}
+          onMergeRight={mergeRight}
+          onUnmerge={unmergeSelection}
+        />
+      ) : null}
+    </div>
   );
+}
+
+function TableContextMenu({
+  canMerge,
+  canUnmerge,
+  columns,
+  menu,
+  onClose,
+  onInsertColumnAfter,
+  onInsertColumnBefore,
+  onInsertRowAfter,
+  onInsertRowBefore,
+  onMerge,
+  onMoveColumnLeft,
+  onMoveColumnRight,
+  onMoveRowDown,
+  onMoveRowUp,
+  onUnmerge,
+  onMergeDown,
+  onMergeRight,
+  rows,
+}: {
+  canMerge: boolean;
+  canUnmerge: boolean;
+  columns: number;
+  menu: TableMenuState;
+  onClose: () => void;
+  onInsertColumnAfter: (column: number) => void;
+  onInsertColumnBefore: (column: number) => void;
+  onInsertRowAfter: (row: number) => void;
+  onInsertRowBefore: (row: number) => void;
+  onMerge: () => void;
+  onMergeDown: (row: number, column: number) => void;
+  onMergeRight: (row: number, column: number) => void;
+  onMoveColumnLeft: (column: number) => void;
+  onMoveColumnRight: (column: number) => void;
+  onMoveRowDown: (row: number) => void;
+  onMoveRowUp: (row: number) => void;
+  onUnmerge: () => void;
+  rows: number;
+}) {
+  const run = (action: () => void) => {
+    action();
+    onClose();
+  };
+
+  return (
+    <div
+      className="table-context-menu"
+      style={{ left: menu.x, top: menu.y }}
+      role="menu"
+      onContextMenu={(event) => event.preventDefault()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      {menu.type === "row" ? (
+        <>
+          <button type="button" onClick={() => run(() => onInsertRowBefore(menu.row))}>在上方插入行</button>
+          <button type="button" onClick={() => run(() => onInsertRowAfter(menu.row))}>在下方插入行</button>
+          <button type="button" disabled={menu.row <= 0} onClick={() => run(() => onMoveRowUp(menu.row))}>上移整行</button>
+          <button type="button" disabled={menu.row >= rows - 1} onClick={() => run(() => onMoveRowDown(menu.row))}>下移整行</button>
+        </>
+      ) : null}
+      {menu.type === "column" ? (
+        <>
+          <button type="button" onClick={() => run(() => onInsertColumnBefore(menu.column))}>在左侧插入列</button>
+          <button type="button" onClick={() => run(() => onInsertColumnAfter(menu.column))}>在右侧插入列</button>
+          <button type="button" disabled={menu.column <= 0} onClick={() => run(() => onMoveColumnLeft(menu.column))}>左移整列</button>
+          <button type="button" disabled={menu.column >= columns - 1} onClick={() => run(() => onMoveColumnRight(menu.column))}>右移整列</button>
+        </>
+      ) : null}
+      {menu.type === "cell" ? (
+        <>
+          {canMerge ? <button type="button" onClick={() => run(onMerge)}>合并选区</button> : null}
+          {!canMerge ? <button type="button" disabled={menu.column >= columns - 1} onClick={() => run(() => onMergeRight(menu.row, menu.column))}>向右合并</button> : null}
+          {!canMerge ? <button type="button" disabled={menu.row >= rows - 1} onClick={() => run(() => onMergeDown(menu.row, menu.column))}>向下合并</button> : null}
+          <button type="button" disabled={!canUnmerge} onClick={() => run(onUnmerge)}>拆分单元格</button>
+          <button type="button" onClick={() => run(() => onInsertRowAfter(menu.row))}>在下方插入行</button>
+          <button type="button" onClick={() => run(() => onInsertColumnAfter(menu.column))}>在右侧插入列</button>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function normalizeTableColumns(rawColumns: unknown, rawRows: unknown): string[] {
+  if (Array.isArray(rawColumns) && rawColumns.length > 0) return rawColumns.map((column, index) => String(column || `列 ${index + 1}`));
+  const rowWidth = Array.isArray(rawRows) ? Math.max(1, ...rawRows.map((row) => (Array.isArray(row) ? row.length : 0))) : 1;
+  return Array.from({ length: rowWidth }, (_item, index) => `列 ${index + 1}`);
+}
+
+function normalizeTableRows(rawRows: unknown, columnCount: number): string[][] {
+  const rows = Array.isArray(rawRows) ? rawRows : [];
+  const normalizedRows = rows.map((row) => {
+    const cells = Array.isArray(row) ? row.map((cell) => String(cell ?? "")) : [];
+    return Array.from({ length: columnCount }, (_item, index) => cells[index] ?? "");
+  });
+  return normalizedRows.length > 0 ? normalizedRows : [createEmptyTableRow(columnCount)];
+}
+
+function createEmptyTableRow(columnCount: number): string[] {
+  return Array.from({ length: Math.max(1, columnCount) }, () => "");
+}
+
+function normalizeTableMerges(rawMerges: unknown, rowCount: number, columnCount: number): TableMerge[] {
+  if (!Array.isArray(rawMerges)) return [];
+  return rawMerges
+    .map((merge) => {
+      const record = merge && typeof merge === "object" ? (merge as Record<string, unknown>) : {};
+      return {
+        row: Number(record.row),
+        column: Number(record.column),
+        rowSpan: Number(record.rowSpan),
+        colSpan: Number(record.colSpan),
+      };
+    })
+    .filter((merge) => {
+      return (
+        Number.isInteger(merge.row) &&
+        Number.isInteger(merge.column) &&
+        Number.isInteger(merge.rowSpan) &&
+        Number.isInteger(merge.colSpan) &&
+        merge.row >= 0 &&
+        merge.column >= 0 &&
+        (merge.rowSpan > 1 || merge.colSpan > 1)
+      );
+    })
+    .filter((merge) => merge.row < rowCount && merge.column < columnCount)
+    .map((merge) => ({
+      ...merge,
+      rowSpan: Math.min(merge.rowSpan, rowCount - merge.row),
+      colSpan: Math.min(merge.colSpan, columnCount - merge.column),
+    }));
+}
+
+function clampIndex(value: number, max: number): number {
+  return Math.min(Math.max(0, value), max);
+}
+
+function range(start: number, end: number): number[] {
+  return Array.from({ length: Math.max(0, end - start + 1) }, (_item, index) => start + index);
+}
+
+function getSelectionBounds(selection: TableCellSelection) {
+  return {
+    minRow: Math.min(selection.anchor.row, selection.focus.row),
+    maxRow: Math.max(selection.anchor.row, selection.focus.row),
+    minColumn: Math.min(selection.anchor.column, selection.focus.column),
+    maxColumn: Math.max(selection.anchor.column, selection.focus.column),
+  };
+}
+
+function isCellWithinBounds(row: number, column: number, bounds: ReturnType<typeof getSelectionBounds>): boolean {
+  return row >= bounds.minRow && row <= bounds.maxRow && column >= bounds.minColumn && column <= bounds.maxColumn;
+}
+
+function getMergeAnchor(merges: TableMerge[], row: number, column: number): TableMerge | undefined {
+  return merges.find((merge) => merge.row === row && merge.column === column);
+}
+
+function isCellCoveredByMerge(merges: TableMerge[], row: number, column: number): boolean {
+  return merges.some((merge) => {
+    const inside = row >= merge.row && row < merge.row + merge.rowSpan && column >= merge.column && column < merge.column + merge.colSpan;
+    return inside && (row !== merge.row || column !== merge.column);
+  });
+}
+
+function doesMergeIntersectBounds(merge: TableMerge, bounds: ReturnType<typeof getSelectionBounds>): boolean {
+  return (
+    merge.row <= bounds.maxRow &&
+    merge.row + merge.rowSpan - 1 >= bounds.minRow &&
+    merge.column <= bounds.maxColumn &&
+    merge.column + merge.colSpan - 1 >= bounds.minColumn
+  );
+}
+
+function moveArrayItem<T>(items: T[], from: number, to: number): T[] {
+  const nextItems = [...items];
+  const [item] = nextItems.splice(from, 1);
+  nextItems.splice(to, 0, item);
+  return nextItems;
+}
+
+function createMovedIndexMap(length: number, from: number, to: number): Map<number, number> {
+  return new Map(moveArrayItem(Array.from({ length }, (_item, index) => index), from, to).map((oldIndex, newIndex) => [oldIndex, newIndex]));
+}
+
+function remapTableMerges(
+  merges: TableMerge[],
+  maps: {
+    rowMap?: Map<number, number>;
+    columnMap?: Map<number, number>;
+  },
+): TableMerge[] {
+  return merges.map((merge) => ({
+    ...merge,
+    row: maps.rowMap?.get(merge.row) ?? merge.row,
+    column: maps.columnMap?.get(merge.column) ?? merge.column,
+  }));
+}
+
+function formatTableSelectionLabel(selection: TableCellSelection | null): string {
+  if (!selection) return "选择单元格";
+  const bounds = getSelectionBounds(selection);
+  const rowLabel = bounds.minRow === bounds.maxRow ? `R${bounds.minRow + 1}` : `R${bounds.minRow + 1}:R${bounds.maxRow + 1}`;
+  const columnLabel =
+    bounds.minColumn === bounds.maxColumn ? `C${bounds.minColumn + 1}` : `C${bounds.minColumn + 1}:C${bounds.maxColumn + 1}`;
+  return `${rowLabel} ${columnLabel}`;
 }
 
 export function ButtonRenderer({ node }: ComponentRendererProps) {

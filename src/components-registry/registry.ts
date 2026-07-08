@@ -58,6 +58,13 @@ const cardLikeSchema = z
   })
   .catchall(z.unknown());
 
+const tableMergeSchema = z.object({
+  row: z.number().int().nonnegative(),
+  column: z.number().int().nonnegative(),
+  rowSpan: z.number().int().min(1),
+  colSpan: z.number().int().min(1),
+});
+
 export const componentRegistry: Record<CanvasNodeType, ComponentDefinition> = {
   text: {
     type: "text",
@@ -149,8 +156,14 @@ export const componentRegistry: Record<CanvasNodeType, ComponentDefinition> = {
       { type: "text", label: "列", path: "props.columns" },
       { type: "textarea", label: "行", path: "props.rows" },
     ],
-    defaultProps: { columns: [], rows: [] },
-    schema: z.object({ columns: z.array(z.string()), rows: z.array(z.array(z.string())) }).catchall(z.unknown()),
+    defaultProps: { columns: [], rows: [], merges: [] },
+    schema: z
+      .object({
+        columns: z.array(z.string()),
+        rows: z.array(z.array(z.string())),
+        merges: z.array(tableMergeSchema).optional(),
+      })
+      .catchall(z.unknown()),
     getContextSummary: (node) => `${node.name}: 表格`,
   },
   card: {

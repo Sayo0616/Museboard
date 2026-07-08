@@ -1,8 +1,12 @@
+import { useEffect, useRef, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { PropertyField } from "./PropertyField";
 import { componentRegistry } from "../components-registry/registry";
+import { composeMarkdownSource, splitMarkdownSource } from "../components-registry/markdown";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
 import { getActivePage } from "../workspace/workspaceSelectors";
+import type { CanvasNode } from "../workspace/workspaceTypes";
+import type { AgentResponse } from "../agent/agentProtocol";
 import { getAtPath } from "../utils/patch";
 
 export function InspectorPanel() {
@@ -88,6 +92,19 @@ export function InspectorPanel() {
     };
   };
 
+  if (selectedNode.type === "text") {
+    return (
+      <TextNodeInspector
+        node={selectedNode}
+        onEditStart={beginUserEdit}
+        onPreview={previewUserEdit}
+        onCommit={commitUserEdit}
+        onCancel={cancelUserEdit}
+        fieldBindings={fieldBindings}
+      />
+    );
+  }
+
   return (
     <section className="inspector-panel">
       <div className="panel-title">
@@ -107,8 +124,6 @@ export function InspectorPanel() {
       />
 
       <div className="property-grid">
-        <PropertyField label="X" type="number" value={selectedNode.position.x} {...fieldBindings("position.x")} />
-        <PropertyField label="Y" type="number" value={selectedNode.position.y} {...fieldBindings("position.y")} />
         <PropertyField label="宽" type="number" min={80} value={selectedNode.position.width} {...fieldBindings("position.width")} />
         <PropertyField label="高" type="number" min={48} value={selectedNode.position.height} {...fieldBindings("position.height")} />
       </div>
@@ -227,6 +242,114 @@ export function InspectorPanel() {
         <span>Agent 上下文摘要</span>
         <p>{definition.getContextSummary(selectedNode)}</p>
       </div>
+    </section>
+  );
+}
+
+type TextNodeInspectorProps = {
+  node: CanvasNode;
+  onEditStart: (eventLabel?: string) => void;
+  onPreview: (response: AgentResponse, eventLabel?: string) => void;
+  onCommit: (eventLabel?: string) => void;
+  onCancel: () => void;
+  fieldBindings: (path: string, label?: string, parse?: (value: string | number) => unknown) => {
+    onEditStart: () => void;
+    onPreview: (value: string | number) => void;
+    onCommit: (value: string | number) => void;
+    onCancel: () => void;
+  };
+};
+
+function TextNodeInspector({ node, onEditStart, onPreview, onCommit, onCancel, fieldBindings }: TextNodeInspectorProps) {
+  const markdownValue = composeMarkdownSource(node);
+  const [draft, setDraft] = useState(markdownValue);
+  const isEditingRef = useRef(false);
+  const eventLabel = `${node.name} Markdown 已更新`;
+
+  useEffect(() => {
+    if (!isEditingRef.current) {
+      setDraft(markdownValue);
+    }
+  }, [markdownValue]);
+
+  const previewMarkdown = (value: string) => {
+    const parsed = splitMarkdownSource(value);
+    onPreview(
+      {
+        message: "本地更新",
+        operations: [
+          {
+            type: "update_node",
+            nodeId: node.id,
+            patch: {
+              "props.title": parsed.title,
+              "props.text": parsed.text,
+            },
+          },
+        ],
+      },
+      eventLabel,
+    );
+  };
+
+  const beginMarkdownEdit = () => {
+    if (isEditingRef.current) return;
+    isEditingRef.current = true;
+    onEditStart(eventLabel);
+  };
+
+  const commitMarkdownEdit = () => {
+    if (!isEditingRef.current) return;
+    isEditingRef.current = false;
+    previewMarkdown(draft);
+    onCommit(eventLabel);
+  };
+
+  const cancelMarkdownEdit = () => {
+    isEditingRef.current = false;
+    setDraft(markdownValue);
+    onCancel();
+  };
+
+  return (
+    <section className="inspector-panel text-inspector">
+      <div className="panel-title">
+        <SlidersHorizontal size={15} />
+        <span>属性</span>
+      </div>
+
+      <div className="property-grid">
+        <PropertyField label="宽" type="number" min={80} value={node.position.width} {...fieldBindings("position.width")} />
+        <PropertyField label="高" type="number" min={48} value={node.position.height} {...fieldBindings("position.height")} />
+      </div>
+
+      <label className="property-field text-markdown-field">
+        <span>文本</span>
+        <textarea
+          value={draft}
+          onFocus={beginMarkdownEdit}
+          onChange={(event) => {
+            beginMarkdownEdit();
+            const nextDraft = event.target.value;
+            setDraft(nextDraft);
+            previewMarkdown(nextDraft);
+          }}
+          onBlur={commitMarkdownEdit}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              commitMarkdownEdit();
+              event.currentTarget.blur();
+            }
+
+            if (event.key === "Escape") {
+              event.preventDefault();
+              cancelMarkdownEdit();
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      </label>
     </section>
   );
 }

@@ -215,7 +215,8 @@ function applyInputBinding(node: CanvasNode, target: string | undefined, variabl
     const currentData = Array.isArray(node.props.data) ? (node.props.data as number[]) : [];
     const baseData = Array.isArray(node.props.baseData) ? (node.props.baseData as number[]) : currentData;
     const numericValue = typeof variable.value === "number" ? variable.value : Number(variable.value);
-    const factor = Number.isFinite(numericValue) ? Math.max(0.1, numericValue / 45000) : 1;
+    const baseValue = variableName === "sliderValue" ? 50 : 45000;
+    const factor = Number.isFinite(numericValue) ? Math.max(0.1, numericValue / baseValue) : 1;
     const data = baseData.map((value) => Math.round(value * factor));
     return {
       ...node,
@@ -233,7 +234,7 @@ function applyInputBinding(node: CanvasNode, target: string | undefined, variabl
       ...node,
       props: {
         ...node.props,
-        detail: `${variableName}: ${formatVariableValue(variable)}`,
+        detail: `${formatVariableName(variableName)}: ${formatVariableValue(variable)}`,
       },
     };
   }
@@ -245,4 +246,10 @@ function applyInputBinding(node: CanvasNode, target: string | undefined, variabl
 function formatVariableValue(variable: WorkspaceVariable): string {
   if (typeof variable.value === "number") return variable.value.toLocaleString("zh-CN");
   return String(variable.value);
+}
+
+function formatVariableName(variableName: string): string {
+  if (variableName === "sliderValue") return "滑块数值";
+  if (variableName === "budget") return "预算";
+  return variableName;
 }

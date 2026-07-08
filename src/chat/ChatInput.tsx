@@ -52,7 +52,7 @@ export function ChatInput({ nodes, selectedNodeIds, onSubmit }: ChatInputProps) 
       <textarea
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        placeholder="输入短指令，例如：优化这些，或修改 @预算滑块"
+        placeholder="输入短指令，例如：优化这些，或修改 @通用滑块"
       />
       <Button variant="primary" type="submit" aria-label="发送">
         <ArrowUp size={15} />

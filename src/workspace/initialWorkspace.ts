@@ -12,9 +12,9 @@ export const initialWorkspace: Workspace = {
   updatedAt: timestamp,
   dataSources: {},
   variables: {
-    budget: {
+    sliderValue: {
       type: "number",
-      value: 45000,
+      value: 50,
     },
   },
   pages: [
@@ -24,11 +24,11 @@ export const initialWorkspace: Workspace = {
       viewport: { x: 0, y: 0, zoom: 1 },
       edges: [
         {
-          id: "edge_budget_roi",
+          id: "edge_slider_metric",
           sourceNodeId: "slider_budget",
           targetNodeId: "card_roi",
           type: "data_flow",
-          label: "预算影响 ROI",
+          label: "滑块影响指标",
         },
       ],
       nodes: [
@@ -47,17 +47,17 @@ export const initialWorkspace: Workspace = {
         {
           id: "slider_budget",
           type: "slider",
-          name: "预算滑块",
-          position: { x: 80, y: 244, width: 340, height: 116 },
+          name: "通用滑块",
+          position: { x: 80, y: 205, width: 340, height: 116 },
           props: {
-            label: "预算",
+            label: "数值",
             min: 0,
-            max: 100000,
-            step: 1000,
-            value: 45000,
-            unit: "元",
+            max: 100,
+            step: 1,
+            value: 50,
+            unit: "",
           },
-          bindings: { output: [{ prop: "value", variable: "budget" }] },
+          bindings: { output: [{ prop: "value", variable: "sliderValue" }] },
           permissions: { userEditable: true, agentEditable: true, deletable: true },
           metadata: { createdBy: "agent", updatedBy: "agent", createdAt: timestamp, updatedAt: timestamp },
         },
@@ -73,7 +73,7 @@ export const initialWorkspace: Workspace = {
             data: [42, 36, 48, 55, 61, 58],
             labels: ["1月", "2月", "3月", "4月", "5月", "6月"],
           },
-          bindings: { input: [{ variable: "budget", target: "props.data" }] },
+          bindings: { input: [{ variable: "sliderValue", target: "props.data" }] },
           permissions: { userEditable: true, agentEditable: true, deletable: true },
           metadata: { createdBy: "agent", updatedBy: "agent", createdAt: timestamp, updatedAt: timestamp },
         },
@@ -85,9 +85,9 @@ export const initialWorkspace: Workspace = {
           props: {
             title: "ROI",
             value: "128%",
-            detail: "预算调整后保持健康回报。",
+            detail: "滑块数值变化后保持健康回报。",
           },
-          bindings: { input: [{ variable: "budget", target: "props.detail" }] },
+          bindings: { input: [{ variable: "sliderValue", target: "props.detail" }] },
           permissions: { userEditable: true, agentEditable: true, deletable: true },
           metadata: { createdBy: "agent", updatedBy: "agent", createdAt: timestamp, updatedAt: timestamp },
         },
@@ -98,7 +98,7 @@ export const initialWorkspace: Workspace = {
           position: { x: 930, y: 252, width: 310, height: 222 },
           props: {
             title: "审批流程",
-            steps: ["提交预算", "财务复核", "主管确认"],
+            steps: ["提交参数", "财务复核", "主管确认"],
           },
           permissions: { userEditable: true, agentEditable: true, deletable: true },
           metadata: { createdBy: "agent", updatedBy: "agent", createdAt: timestamp, updatedAt: timestamp },
@@ -107,14 +107,15 @@ export const initialWorkspace: Workspace = {
           id: "table_plan",
           type: "table",
           name: "执行计划",
-          position: { x: 80, y: 410, width: 560, height: 220 },
+          position: { x: 80, y: 330, width: 560, height: 260 },
           props: {
             columns: ["事项", "负责人", "状态"],
             rows: [
-              ["预算确认", "财务", "进行中"],
+              ["参数确认", "财务", "进行中"],
               ["渠道复盘", "增长", "待开始"],
               ["ROI 汇报", "运营", "已排期"],
             ],
+            merges: [],
           },
           permissions: { userEditable: true, agentEditable: true, deletable: true },
           metadata: { createdBy: "agent", updatedBy: "agent", createdAt: timestamp, updatedAt: timestamp },

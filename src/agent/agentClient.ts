@@ -92,34 +92,34 @@ function runWebSocketAgent(endpoint: string, message: string, context: Workspace
 export async function runLocalAgent(message: string, context: WorkspaceContext): Promise<AgentResponse> {
   const normalized = message.trim().toLowerCase();
 
-  if (normalized.includes("预算") || normalized.includes("budget")) {
+  if (normalized.includes("滑块") || normalized.includes("slider") || normalized.includes("预算") || normalized.includes("budget")) {
     return {
-      message: "已创建预算分析组件。",
+      message: "已创建通用滑块。",
       operations: [
         {
           type: "create_node",
           node: {
-            id: createId("slider_budget"),
+            id: createId("slider"),
             type: "slider",
-            name: "预算滑块",
+            name: "通用滑块",
             position: { x: 180, y: 180, width: 340, height: 116 },
             props: {
-              label: "预算",
+              label: "数值",
               min: 0,
-              max: 200000,
-              step: 5000,
-              value: 60000,
-              unit: "元",
+              max: 100,
+              step: 1,
+              value: 50,
+              unit: "",
             },
-            bindings: { output: [{ prop: "value", variable: "budget" }] },
+            bindings: { output: [{ prop: "value", variable: "sliderValue" }] },
             permissions: { userEditable: true, agentEditable: true, deletable: true },
             metadata: { createdBy: "agent", updatedBy: "agent", createdAt: nowIso(), updatedAt: nowIso() },
           },
         },
         {
           type: "set_variable",
-          key: "budget",
-          variable: { type: "number", value: 60000 },
+          key: "sliderValue",
+          variable: { type: "number", value: 50 },
         },
       ],
     };
