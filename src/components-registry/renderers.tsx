@@ -53,6 +53,7 @@ export function TextRenderer({ node }: ComponentRendererProps) {
   const markdownSource = useMemo(() => composeMarkdownSource(node), [node]);
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(markdownSource);
+  const skipNextBlurCommitRef = useRef(false);
 
   useEffect(() => {
     if (!isEditing) {
@@ -62,12 +63,14 @@ export function TextRenderer({ node }: ComponentRendererProps) {
 
   const startEditing = () => {
     if (disabled) return;
+    skipNextBlurCommitRef.current = false;
     setDraft(markdownSource);
     setIsEditing(true);
   };
 
-  const commitMarkdown = () => {
+  const commitMarkdown = (suppressNextBlurCommit = false) => {
     if (!isEditing) return;
+    skipNextBlurCommitRef.current = suppressNextBlurCommit;
     const parsed = splitMarkdownSource(draft);
     setIsEditing(false);
     updateNode(
@@ -81,6 +84,7 @@ export function TextRenderer({ node }: ComponentRendererProps) {
   };
 
   const cancelMarkdown = () => {
+    skipNextBlurCommitRef.current = true;
     setDraft(markdownSource);
     setIsEditing(false);
   };
@@ -93,11 +97,17 @@ export function TextRenderer({ node }: ComponentRendererProps) {
           className="markdown-editor"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          onBlur={commitMarkdown}
+          onBlur={() => {
+            if (skipNextBlurCommitRef.current) {
+              skipNextBlurCommitRef.current = false;
+              return;
+            }
+            commitMarkdown();
+          }}
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
               event.preventDefault();
-              commitMarkdown();
+              commitMarkdown(true);
               event.currentTarget.blur();
             }
 
@@ -140,7 +150,10 @@ export function SliderRenderer({ node }: ComponentRendererProps) {
   const unit = String(node.props.unit ?? "");
   const eventLabel = `${node.name} 当前值已更新`;
 
+  const rangeError = getSliderRangeError(min, max, step, value);
+
   const previewValue = (next: number) => {
+    if (rangeError) return;
     beginUserEdit(eventLabel);
     previewUserEdit(
       {
@@ -162,6 +175,7 @@ export function SliderRenderer({ node }: ComponentRendererProps) {
   };
 
   const startRangeDrag = (event: PointerEvent<HTMLInputElement>) => {
+    if (rangeError) return;
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -205,24 +219,45 @@ export function SliderRenderer({ node }: ComponentRendererProps) {
         max={max}
         step={step}
         value={value}
+        disabled={Boolean(rangeError)}
+        aria-invalid={Boolean(rangeError)}
         onPointerDown={startRangeDrag}
-        onPointerUp={() => commitUserEdit(eventLabel)}
-        onPointerCancel={() => commitUserEdit(eventLabel)}
-        onBlur={() => commitUserEdit(eventLabel)}
+        onPointerUp={() => {
+          if (!rangeError) commitUserEdit(eventLabel);
+        }}
+        onPointerCancel={() => {
+          if (!rangeError) commitUserEdit(eventLabel);
+        }}
+        onBlur={() => {
+          if (!rangeError) commitUserEdit(eventLabel);
+        }}
         onKeyUp={(event) => {
-          if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key)) {
+          if (!rangeError && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key)) {
             commitUserEdit(eventLabel);
           }
         }}
         onInput={(event) => previewValue(Number(event.currentTarget.value))}
         onChange={(event) => previewValue(Number(event.target.value))}
       />
+      {rangeError ? (
+        <p className="component-error" role="alert">
+          {rangeError}
+        </p>
+      ) : null}
       <div className="range-meta">
         <span>{min.toLocaleString("zh-CN")}</span>
         <span>{max.toLocaleString("zh-CN")}</span>
       </div>
     </div>
   );
+}
+
+function getSliderRangeError(min: number, max: number, step: number, value: number): string | null {
+  if (![min, max, step, value].every(Number.isFinite)) return "滑块配置包含无效数字，请在属性面板修正。";
+  if (min >= max) return "最小值必须小于最大值，请在属性面板修正。";
+  if (step <= 0) return "步长必须大于 0，请在属性面板修正。";
+  if (value < min || value > max) return "当前值超出范围，请在属性面板修正。";
+  return null;
 }
 
 export function ChartRenderer({ node }: ComponentRendererProps) {
@@ -399,6 +434,7 @@ export function TableRenderer({ node }: ComponentRendererProps) {
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
   const [hoveredColumn, setHoveredColumn] = useState<number | null>(null);
   const [menu, setMenu] = useState<TableMenuState | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const skipCellFocusRef = useRef(false);
   const dragStateRef = useRef<{
     kind: "row" | "column";
@@ -440,6 +476,7 @@ export function TableRenderer({ node }: ComponentRendererProps) {
 
   const selectCell = (cell: TableCellRef, appendRange: boolean) => {
     setMenu(null);
+    setNotice(null);
     setSelection((current) => ({
       anchor: appendRange && current ? current.anchor : cell,
       focus: cell,
@@ -448,6 +485,7 @@ export function TableRenderer({ node }: ComponentRendererProps) {
 
   const selectRow = (rowIndex: number) => {
     setMenu(null);
+    setNotice(null);
     setSelection({
       anchor: { row: rowIndex, column: 0 },
       focus: { row: rowIndex, column: Math.max(0, columns.length - 1) },
@@ -456,6 +494,7 @@ export function TableRenderer({ node }: ComponentRendererProps) {
 
   const selectColumn = (columnIndex: number) => {
     setMenu(null);
+    setNotice(null);
     setSelection({
       anchor: { row: 0, column: columnIndex },
       focus: { row: Math.max(0, rows.length - 1), column: columnIndex },
@@ -472,6 +511,7 @@ export function TableRenderer({ node }: ComponentRendererProps) {
   };
 
   const patchTable = (patch: Record<string, unknown>, label: string) => {
+    setNotice(null);
     updateNode(node.id, patch, `${node.name} ${label}`);
   };
 
@@ -499,6 +539,11 @@ export function TableRenderer({ node }: ComponentRendererProps) {
   };
 
   const insertRowAt = (insertAt: number) => {
+    const blockReason = getRowInsertBlockReason(merges, insertAt);
+    if (blockReason) {
+      setNotice(blockReason);
+      return;
+    }
     const nextRows = [...rows.slice(0, insertAt), createEmptyTableRow(columns.length), ...rows.slice(insertAt)];
     const nextMerges = merges.map((merge) => (merge.row >= insertAt ? { ...merge, row: merge.row + 1 } : merge));
     patchTableState(columns, nextRows, nextMerges, "已插入行");
@@ -506,6 +551,11 @@ export function TableRenderer({ node }: ComponentRendererProps) {
   };
 
   const insertColumnAt = (insertAt: number) => {
+    const blockReason = getColumnInsertBlockReason(merges, insertAt);
+    if (blockReason) {
+      setNotice(blockReason);
+      return;
+    }
     const nextColumns = [...columns.slice(0, insertAt), `列 ${insertAt + 1}`, ...columns.slice(insertAt)];
     const nextRows = rows.map((row) => [...row.slice(0, insertAt), "", ...row.slice(insertAt)]);
     const nextMerges = merges.map((merge) => (merge.column >= insertAt ? { ...merge, column: merge.column + 1 } : merge));
@@ -516,6 +566,11 @@ export function TableRenderer({ node }: ComponentRendererProps) {
   const moveRow = (fromIndex: number, toIndex: number) => {
     if (toIndex < 0 || toIndex >= rows.length) return;
     if (fromIndex === toIndex) return;
+    const blockReason = getRowMoveBlockReason(merges, fromIndex, toIndex);
+    if (blockReason) {
+      setNotice(blockReason);
+      return;
+    }
     const nextRows = moveArrayItem(rows, fromIndex, toIndex);
     const nextMerges = remapTableMerges(merges, { rowMap: createMovedIndexMap(rows.length, fromIndex, toIndex) });
     patchTableState(columns, nextRows, nextMerges, "已移动行");
@@ -525,6 +580,11 @@ export function TableRenderer({ node }: ComponentRendererProps) {
   const moveColumn = (fromIndex: number, toIndex: number) => {
     if (toIndex < 0 || toIndex >= columns.length) return;
     if (fromIndex === toIndex) return;
+    const blockReason = getColumnMoveBlockReason(merges, fromIndex, toIndex);
+    if (blockReason) {
+      setNotice(blockReason);
+      return;
+    }
     const nextColumns = moveArrayItem(columns, fromIndex, toIndex);
     const nextRows = rows.map((row) => moveArrayItem(row, fromIndex, toIndex));
     const nextMerges = remapTableMerges(merges, { columnMap: createMovedIndexMap(columns.length, fromIndex, toIndex) });
@@ -541,6 +601,12 @@ export function TableRenderer({ node }: ComponentRendererProps) {
       selectRow(from);
     } else {
       selectColumn(from);
+    }
+
+    const isMergeLocked = kind === "row" ? isRowInVerticalMerge(merges, from) : isColumnInHorizontalMerge(merges, from);
+    if (isMergeLocked) {
+      setNotice(kind === "row" ? "竖向合并单元格所在行不能单独移动，请先拆分单元格。" : "横向合并单元格所在列不能单独移动，请先拆分单元格。");
+      return;
     }
 
     const dragTarget = event.currentTarget.ownerDocument;
@@ -670,7 +736,7 @@ export function TableRenderer({ node }: ComponentRendererProps) {
               </th>
               {columns.map((column, columnIndex) => (
                 <th
-                  key={`${column}-${columnIndex}`}
+                  key={`column-${columnIndex}`}
                   className={`${selectedColumnSet.has(columnIndex) ? "selected-column" : ""} ${
                     hoveredColumn === columnIndex ? "hovered-column" : ""
                   }`}
@@ -707,7 +773,7 @@ export function TableRenderer({ node }: ComponentRendererProps) {
           <tbody>
             {rows.map((row, rowIndex) => (
               <tr
-                key={`${row.join("-")}-${rowIndex}`}
+                key={`row-${rowIndex}`}
                 className={`${selectedRowSet.has(rowIndex) ? "selected-row" : ""} ${hoveredRow === rowIndex ? "hovered-row" : ""}`}
                 data-table-row-index={rowIndex}
                 onMouseEnter={() => setHoveredRow(rowIndex)}
@@ -780,6 +846,14 @@ export function TableRenderer({ node }: ComponentRendererProps) {
           menu={menu}
           rows={rows.length}
           columns={columns.length}
+          rowMoveUpBlocked={menu.type === "row" ? Boolean(getRowMoveBlockReason(merges, menu.row, menu.row - 1)) : false}
+          rowMoveDownBlocked={menu.type === "row" ? Boolean(getRowMoveBlockReason(merges, menu.row, menu.row + 1)) : false}
+          columnMoveLeftBlocked={menu.type === "column" ? Boolean(getColumnMoveBlockReason(merges, menu.column, menu.column - 1)) : false}
+          columnMoveRightBlocked={menu.type === "column" ? Boolean(getColumnMoveBlockReason(merges, menu.column, menu.column + 1)) : false}
+          rowInsertBeforeBlocked={menu.type !== "column" ? Boolean(getRowInsertBlockReason(merges, menu.row)) : false}
+          rowInsertAfterBlocked={menu.type !== "column" ? Boolean(getRowInsertBlockReason(merges, menu.row + 1)) : false}
+          columnInsertBeforeBlocked={menu.type !== "row" ? Boolean(getColumnInsertBlockReason(merges, menu.column)) : false}
+          columnInsertAfterBlocked={menu.type !== "row" ? Boolean(getColumnInsertBlockReason(merges, menu.column + 1)) : false}
           canMerge={canMerge}
           canUnmerge={mergeCountInSelection > 0}
           onClose={() => setMenu(null)}
@@ -797,6 +871,11 @@ export function TableRenderer({ node }: ComponentRendererProps) {
           onUnmerge={unmergeSelection}
         />
       ) : null}
+      {notice ? (
+        <p className="table-notice" role="status">
+          {notice}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -804,6 +883,10 @@ export function TableRenderer({ node }: ComponentRendererProps) {
 function TableContextMenu({
   canMerge,
   canUnmerge,
+  columnInsertAfterBlocked,
+  columnInsertBeforeBlocked,
+  columnMoveLeftBlocked,
+  columnMoveRightBlocked,
   columns,
   menu,
   onClose,
@@ -819,10 +902,18 @@ function TableContextMenu({
   onUnmerge,
   onMergeDown,
   onMergeRight,
+  rowInsertAfterBlocked,
+  rowInsertBeforeBlocked,
+  rowMoveDownBlocked,
+  rowMoveUpBlocked,
   rows,
 }: {
   canMerge: boolean;
   canUnmerge: boolean;
+  columnInsertAfterBlocked: boolean;
+  columnInsertBeforeBlocked: boolean;
+  columnMoveLeftBlocked: boolean;
+  columnMoveRightBlocked: boolean;
   columns: number;
   menu: TableMenuState;
   onClose: () => void;
@@ -838,6 +929,10 @@ function TableContextMenu({
   onMoveRowDown: (row: number) => void;
   onMoveRowUp: (row: number) => void;
   onUnmerge: () => void;
+  rowInsertAfterBlocked: boolean;
+  rowInsertBeforeBlocked: boolean;
+  rowMoveDownBlocked: boolean;
+  rowMoveUpBlocked: boolean;
   rows: number;
 }) {
   const run = (action: () => void) => {
@@ -855,18 +950,22 @@ function TableContextMenu({
     >
       {menu.type === "row" ? (
         <>
-          <button type="button" onClick={() => run(() => onInsertRowBefore(menu.row))}>在上方插入行</button>
-          <button type="button" onClick={() => run(() => onInsertRowAfter(menu.row))}>在下方插入行</button>
-          <button type="button" disabled={menu.row <= 0} onClick={() => run(() => onMoveRowUp(menu.row))}>上移整行</button>
-          <button type="button" disabled={menu.row >= rows - 1} onClick={() => run(() => onMoveRowDown(menu.row))}>下移整行</button>
+          <button type="button" disabled={rowInsertBeforeBlocked} onClick={() => run(() => onInsertRowBefore(menu.row))}>在上方插入行</button>
+          <button type="button" disabled={rowInsertAfterBlocked} onClick={() => run(() => onInsertRowAfter(menu.row))}>在下方插入行</button>
+          <button type="button" disabled={rowMoveUpBlocked || menu.row <= 0} onClick={() => run(() => onMoveRowUp(menu.row))}>上移整行</button>
+          <button type="button" disabled={rowMoveDownBlocked || menu.row >= rows - 1} onClick={() => run(() => onMoveRowDown(menu.row))}>下移整行</button>
+          {rowInsertBeforeBlocked || rowInsertAfterBlocked ? <p className="table-menu-hint">不能在竖向合并单元格中间插入行。</p> : null}
+          {rowMoveUpBlocked || rowMoveDownBlocked ? <p className="table-menu-hint">不能移入或移出竖向合并单元格所在行。</p> : null}
         </>
       ) : null}
       {menu.type === "column" ? (
         <>
-          <button type="button" onClick={() => run(() => onInsertColumnBefore(menu.column))}>在左侧插入列</button>
-          <button type="button" onClick={() => run(() => onInsertColumnAfter(menu.column))}>在右侧插入列</button>
-          <button type="button" disabled={menu.column <= 0} onClick={() => run(() => onMoveColumnLeft(menu.column))}>左移整列</button>
-          <button type="button" disabled={menu.column >= columns - 1} onClick={() => run(() => onMoveColumnRight(menu.column))}>右移整列</button>
+          <button type="button" disabled={columnInsertBeforeBlocked} onClick={() => run(() => onInsertColumnBefore(menu.column))}>在左侧插入列</button>
+          <button type="button" disabled={columnInsertAfterBlocked} onClick={() => run(() => onInsertColumnAfter(menu.column))}>在右侧插入列</button>
+          <button type="button" disabled={columnMoveLeftBlocked || menu.column <= 0} onClick={() => run(() => onMoveColumnLeft(menu.column))}>左移整列</button>
+          <button type="button" disabled={columnMoveRightBlocked || menu.column >= columns - 1} onClick={() => run(() => onMoveColumnRight(menu.column))}>右移整列</button>
+          {columnInsertBeforeBlocked || columnInsertAfterBlocked ? <p className="table-menu-hint">不能在横向合并单元格中间插入列。</p> : null}
+          {columnMoveLeftBlocked || columnMoveRightBlocked ? <p className="table-menu-hint">不能移入或移出横向合并单元格所在列。</p> : null}
         </>
       ) : null}
       {menu.type === "cell" ? (
@@ -875,8 +974,8 @@ function TableContextMenu({
           {!canMerge ? <button type="button" disabled={menu.column >= columns - 1} onClick={() => run(() => onMergeRight(menu.row, menu.column))}>向右合并</button> : null}
           {!canMerge ? <button type="button" disabled={menu.row >= rows - 1} onClick={() => run(() => onMergeDown(menu.row, menu.column))}>向下合并</button> : null}
           <button type="button" disabled={!canUnmerge} onClick={() => run(onUnmerge)}>拆分单元格</button>
-          <button type="button" onClick={() => run(() => onInsertRowAfter(menu.row))}>在下方插入行</button>
-          <button type="button" onClick={() => run(() => onInsertColumnAfter(menu.column))}>在右侧插入列</button>
+          <button type="button" disabled={rowInsertAfterBlocked} onClick={() => run(() => onInsertRowAfter(menu.row))}>在下方插入行</button>
+          <button type="button" disabled={columnInsertAfterBlocked} onClick={() => run(() => onInsertColumnAfter(menu.column))}>在右侧插入列</button>
         </>
       ) : null}
     </div>
@@ -963,6 +1062,36 @@ function isCellCoveredByMerge(merges: TableMerge[], row: number, column: number)
     const inside = row >= merge.row && row < merge.row + merge.rowSpan && column >= merge.column && column < merge.column + merge.colSpan;
     return inside && (row !== merge.row || column !== merge.column);
   });
+}
+
+function isRowInVerticalMerge(merges: TableMerge[], row: number): boolean {
+  return merges.some((merge) => merge.rowSpan > 1 && row >= merge.row && row < merge.row + merge.rowSpan);
+}
+
+function isColumnInHorizontalMerge(merges: TableMerge[], column: number): boolean {
+  return merges.some((merge) => merge.colSpan > 1 && column >= merge.column && column < merge.column + merge.colSpan);
+}
+
+function getRowMoveBlockReason(merges: TableMerge[], from: number, to: number): string | null {
+  if (isRowInVerticalMerge(merges, from)) return "竖向合并单元格所在行不能单独移动，请先拆分单元格。";
+  if (isRowInVerticalMerge(merges, to)) return "不能移动到竖向合并单元格所在行，请先拆分单元格。";
+  return null;
+}
+
+function getColumnMoveBlockReason(merges: TableMerge[], from: number, to: number): string | null {
+  if (isColumnInHorizontalMerge(merges, from)) return "横向合并单元格所在列不能单独移动，请先拆分单元格。";
+  if (isColumnInHorizontalMerge(merges, to)) return "不能移动到横向合并单元格所在列，请先拆分单元格。";
+  return null;
+}
+
+function getRowInsertBlockReason(merges: TableMerge[], insertAt: number): string | null {
+  const isInsideVerticalMerge = merges.some((merge) => merge.rowSpan > 1 && insertAt > merge.row && insertAt < merge.row + merge.rowSpan);
+  return isInsideVerticalMerge ? "不能在竖向合并单元格中间插入行，请先拆分单元格。" : null;
+}
+
+function getColumnInsertBlockReason(merges: TableMerge[], insertAt: number): string | null {
+  const isInsideHorizontalMerge = merges.some((merge) => merge.colSpan > 1 && insertAt > merge.column && insertAt < merge.column + merge.colSpan);
+  return isInsideHorizontalMerge ? "不能在横向合并单元格中间插入列，请先拆分单元格。" : null;
 }
 
 function doesMergeIntersectBounds(merge: TableMerge, bounds: ReturnType<typeof getSelectionBounds>): boolean {

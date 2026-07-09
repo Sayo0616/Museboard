@@ -111,12 +111,31 @@ export function CanvasPanel() {
     syncWorkspaceToTldraw(editorRef.current, nodes);
   }, [nodes, syncWorkspaceToTldraw]);
 
+  useEffect(() => {
+    if (!editor) return;
+    const nextShapeIds = selectedNodeIds.map(shapeIdForNode).filter((shapeId) => Boolean(editor.getShape(shapeId)));
+    const currentShapeIds = editor
+      .getSelectedShapeIds()
+      .filter((shapeId) => editor.getShape(shapeId)?.type === museboardShapeType);
+    if (areShapeIdListsEqual(currentShapeIds, nextShapeIds)) return;
+
+    isSyncingTldrawRef.current = true;
+    try {
+      editor.setSelectedShapes(nextShapeIds);
+    } finally {
+      queueMicrotask(() => {
+        isSyncingTldrawRef.current = false;
+      });
+    }
+  }, [editor, selectedNodeIds]);
+
   return (
     <div className="canvas-panel">
       <div
         className="tldraw-host"
         onPointerDownCapture={(event) => {
           const target = event.target as HTMLElement;
+          blurActiveEditableIfOutside(target);
           if (target.closest(".node-select-toggle")) return;
           if (target.closest(".canvas-edge-hit")) return;
           if (target.closest(".edge-controls")) return;
@@ -286,6 +305,19 @@ function intersectsNode(node: CanvasNode, bounds: ReturnType<typeof normalizeBou
   const nodeX2 = node.position.x + node.position.width;
   const nodeY2 = node.position.y + node.position.height;
   return node.position.x <= bounds.x2 && nodeX2 >= bounds.x1 && node.position.y <= bounds.y2 && nodeY2 >= bounds.y1;
+}
+
+function blurActiveEditableIfOutside(target: HTMLElement) {
+  const activeElement = target.ownerDocument.activeElement;
+  if (!(activeElement instanceof HTMLElement)) return;
+  if (!activeElement.matches("input, textarea, select, [contenteditable='true']")) return;
+  if (activeElement.contains(target)) return;
+  activeElement.blur();
+}
+
+function areShapeIdListsEqual(current: unknown[], next: unknown[]) {
+  if (current.length !== next.length) return false;
+  return current.every((shapeId, index) => shapeId === next[index]);
 }
 
 function selectionBoxStyle(box: SelectionBox) {

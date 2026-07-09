@@ -1004,6 +1004,29 @@ input[type="range"] {
   accent-color: var(--accent);
 }
 
+input[type="range"]:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.component-error,
+.table-notice,
+.table-menu-hint {
+  margin: 0;
+  color: #b45b42;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.table-menu-hint {
+  padding: 4px 8px 2px;
+}
+
+.table-notice {
+  flex: 0 0 auto;
+  padding: 0 2px;
+}
+
 .range-meta,
 .chart-labels {
   display: flex;
@@ -1080,6 +1103,9 @@ input[type="range"] {
   position: relative;
   height: 100%;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .table-selection-label {
@@ -1091,7 +1117,8 @@ input[type="range"] {
 }
 
 .table-scroll {
-  height: 100%;
+  flex: 1 1 auto;
+  height: auto;
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--border);
