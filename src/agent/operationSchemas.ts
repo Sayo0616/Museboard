@@ -5,7 +5,7 @@ export const nodeTypeSchema = z.enum([
   "button",
   "slider",
   "chart",
-  "flowchart",
+  "mermaid",
   "table",
   "card",
   "container",

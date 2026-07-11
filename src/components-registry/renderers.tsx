@@ -397,30 +397,81 @@ function polarToCartesian(cx: number, cy: number, radius: number, angleInDegrees
   };
 }
 
-export function FlowchartRenderer({ node }: ComponentRendererProps) {
+export function MermaidRenderer({ node }: ComponentRendererProps) {
   const updateNode = useWorkspaceStore((state) => state.updateNode);
   const mode = useWorkspaceStore((state) => state.mode);
-  const steps = Array.isArray(node.props.steps) ? (node.props.steps as string[]) : [];
+  const source = typeof node.props.source === "string" ? node.props.source : "";
+  const theme = node.props.theme === "default" ? "default" : "neutral";
+  const [rendered, setRendered] = useState<{ svg: string; error: string | null; status: "idle" | "rendering" | "ready" | "error" }>({
+    svg: "",
+    error: null,
+    status: "idle",
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function renderDiagram() {
+      const trimmedSource = source.trim();
+      if (!trimmedSource) {
+        setRendered({ svg: "", error: "Mermaid source is empty.", status: "error" });
+        return;
+      }
+
+      setRendered((current) => ({ ...current, error: null, status: "rendering" }));
+
+      try {
+        const mermaid = (await import("mermaid")).default;
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme,
+        });
+        await mermaid.parse(trimmedSource);
+        const renderId = `mermaid-${node.id.replace(/[^a-zA-Z0-9_-]/g, "-")}-${Date.now()}`;
+        const { svg } = await mermaid.render(renderId, trimmedSource);
+        if (!cancelled) {
+          setRendered({ svg, error: null, status: "ready" });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRendered({ svg: "", error: formatMermaidError(error), status: "error" });
+        }
+      }
+    }
+
+    void renderDiagram();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [node.id, source, theme]);
 
   return (
-    <div className="flow-node-content">
+    <div className="mermaid-node-content">
       <input
         className="chart-title inline-node-input"
         value={String(node.props.title ?? node.name)}
         disabled={mode === "run"}
         onChange={(event) => updateNode(node.id, { "props.title": event.target.value }, `${node.name} 标题已更新`)}
       />
-      <div className="flow-steps">
-        {steps.map((step, index) => (
-          <div className="flow-step" key={`${step}-${index}`}>
-            <span>{index + 1}</span>
-            <p>{step}</p>
-            {index < steps.length - 1 ? <div className="flow-connector" /> : null}
+      <div className="mermaid-diagram" aria-busy={rendered.status === "rendering"}>
+        {rendered.status === "ready" ? <div className="mermaid-svg" dangerouslySetInnerHTML={{ __html: rendered.svg }} /> : null}
+        {rendered.status === "rendering" ? <p className="mermaid-status">Rendering Mermaid diagram...</p> : null}
+        {rendered.status === "error" ? (
+          <div className="mermaid-error" role="alert">
+            <strong>Mermaid syntax error</strong>
+            <p>{rendered.error}</p>
           </div>
-        ))}
+        ) : null}
       </div>
     </div>
   );
+}
+
+function formatMermaidError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.length > 220 ? `${message.slice(0, 220)}...` : message;
 }
 
 export function TableRenderer({ node }: ComponentRendererProps) {

@@ -3,7 +3,7 @@ export type CanvasNodeType =
   | "button"
   | "slider"
   | "chart"
-  | "flowchart"
+  | "mermaid"
   | "table"
   | "card"
   | "container"

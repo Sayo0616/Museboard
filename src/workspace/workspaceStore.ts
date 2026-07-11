@@ -579,7 +579,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   loadWorkspace: () => {
     const raw = localStorage.getItem(storageKey);
     if (!raw) return;
-    const loaded = JSON.parse(raw) as Workspace;
+    const loaded = migrateLegacyWorkspace(JSON.parse(raw) as Workspace);
     const workspace = {
       ...loaded,
       activePageId: loaded.activePageId ?? loaded.pages[0]?.id ?? "page_main",
@@ -704,6 +704,50 @@ function createVersionSnapshot(workspace: Workspace, label: string, previousWork
     workspace: structuredClone(workspace),
     diff: diffWorkspaces(previousWorkspace, workspace),
   };
+}
+
+function migrateLegacyWorkspace(workspace: Workspace): Workspace {
+  return {
+    ...workspace,
+    pages: workspace.pages.map((page) => ({
+      ...page,
+      nodes: page.nodes.map((node) => {
+        if ((node.type as string) !== "flowchart") return node;
+        return {
+          ...node,
+          type: "mermaid",
+          props: migrateFlowchartProps(node.props),
+        };
+      }),
+    })),
+  };
+}
+
+function migrateFlowchartProps(props: Record<string, unknown>): Record<string, unknown> {
+  if (typeof props.source === "string" && props.source.trim()) {
+    return {
+      ...props,
+      diagramType: typeof props.diagramType === "string" ? props.diagramType : "flowchart",
+      theme: props.theme === "default" ? "default" : "neutral",
+    };
+  }
+
+  const steps = Array.isArray(props.steps) ? props.steps.map((step) => String(step).trim()).filter(Boolean) : [];
+  const source =
+    steps.length > 0
+      ? ["flowchart TD", ...steps.map((step, index) => `  N${index + 1}[${escapeMermaidLabel(step)}]${index < steps.length - 1 ? ` --> N${index + 2}` : ""}`)].join("\n")
+      : "flowchart TD\n  A[Input] --> B[Process]\n  B --> C[Output]";
+
+  return {
+    title: props.title,
+    diagramType: "flowchart",
+    theme: "neutral",
+    source,
+  };
+}
+
+function escapeMermaidLabel(label: string): string {
+  return label.replace(/[\[\]]/g, "");
 }
 
 function diffWorkspaces(previousWorkspace: Workspace | null, nextWorkspace: Workspace): VersionSnapshot["diff"] {

@@ -827,7 +827,7 @@ body.layout-resizing {
 .text-node,
 .slider-node,
 .chart-node-content,
-.flow-node-content,
+.mermaid-node-content,
 .metric-card {
   height: 100%;
 }
@@ -1055,48 +1055,57 @@ input[type="range"]:disabled {
   stroke-width: 3px;
 }
 
-.flow-steps {
-  display: grid;
-  gap: 8px;
-}
-
-.flow-step {
-  position: relative;
+.mermaid-node-content {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  min-height: 0;
+  flex-direction: column;
 }
 
-.flow-step span {
-  width: 22px;
-  height: 22px;
+.mermaid-diagram {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
   display: grid;
   place-items: center;
-  border: 1px solid #f0d1c3;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 11px;
-}
-
-.flow-step p {
-  margin: 0;
-  padding: 7px 9px;
-  flex: 1;
   border: 1px solid var(--border);
   border-radius: 8px;
-  color: #5b5555;
-  background: var(--panel-soft);
-  font-size: 12px;
+  background: rgba(255, 255, 255, 0.72);
 }
 
-.flow-connector {
-  position: absolute;
-  left: 10px;
-  top: 24px;
-  width: 1px;
-  height: 10px;
-  background: var(--border-strong);
+.mermaid-svg {
+  width: 100%;
+  min-width: max-content;
+  padding: 10px;
+}
+
+.mermaid-svg svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.mermaid-status,
+.mermaid-error {
+  margin: 0;
+  padding: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mermaid-error {
+  color: #b45b42;
+  text-align: left;
+}
+
+.mermaid-error strong,
+.mermaid-error p {
+  margin: 0;
+}
+
+.mermaid-error p {
+  margin-top: 4px;
 }
 
 .table-node-content {

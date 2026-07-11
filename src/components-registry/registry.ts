@@ -6,7 +6,7 @@ import {
   ButtonRenderer,
   CardRenderer,
   ChartRenderer,
-  FlowchartRenderer,
+  MermaidRenderer,
   SliderRenderer,
   TableRenderer,
   TextRenderer,
@@ -64,6 +64,12 @@ const tableMergeSchema = z.object({
   rowSpan: z.number().int().min(1),
   colSpan: z.number().int().min(1),
 });
+
+const mermaidDiagramTypeSchema = z.enum(["flowchart", "sequence", "state", "class", "er", "gantt", "mindmap", "unknown"]);
+
+const defaultMermaidSource = `flowchart TD
+  A[Input] --> B[Process]
+  B --> C[Output]`;
 
 export const componentRegistry: Record<CanvasNodeType, ComponentDefinition> = {
   text: {
@@ -136,17 +142,34 @@ export const componentRegistry: Record<CanvasNodeType, ComponentDefinition> = {
       .catchall(z.unknown()),
     getContextSummary: (node) => `${node.name}: ${String(node.props.title ?? "图表")}`,
   },
-  flowchart: {
-    type: "flowchart",
-    displayName: "流程图",
-    Renderer: FlowchartRenderer,
+  mermaid: {
+    type: "mermaid",
+    displayName: "Mermaid",
+    Renderer: MermaidRenderer,
     Inspector: [
-      { type: "text", label: "标题", path: "props.title" },
-      { type: "textarea", label: "步骤", path: "props.steps" },
+      { type: "text", label: "Title", path: "props.title" },
+      {
+        type: "select",
+        label: "Diagram",
+        path: "props.diagramType",
+        options: ["flowchart", "sequence", "state", "class", "er", "gantt", "mindmap", "unknown"],
+      },
+      { type: "select", label: "Theme", path: "props.theme", options: ["neutral", "default"] },
+      { type: "textarea", label: "Source", path: "props.source" },
     ],
-    defaultProps: { title: "流程", steps: [] },
-    schema: z.object({ title: z.string().optional(), steps: z.array(z.string()) }).catchall(z.unknown()),
-    getContextSummary: (node) => `${node.name}: ${String(node.props.title ?? "流程")}`,
+    defaultProps: { title: "Mermaid diagram", source: defaultMermaidSource, diagramType: "flowchart", theme: "neutral" },
+    schema: z
+      .object({
+        title: z.string().optional(),
+        source: z.string().min(1),
+        diagramType: mermaidDiagramTypeSchema.optional(),
+        theme: z.enum(["neutral", "default"]).optional(),
+      })
+      .catchall(z.unknown()),
+    getContextSummary: (node) => {
+      const source = String(node.props.source ?? "");
+      return `${node.name}: ${String(node.props.diagramType ?? "mermaid")} ${source.slice(0, 120)}`;
+    },
   },
   table: {
     type: "table",

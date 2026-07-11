@@ -125,6 +125,37 @@ export async function runLocalAgent(message: string, context: WorkspaceContext):
     };
   }
 
+  if (
+    normalized.includes("mermaid") ||
+    normalized.includes("流程图") ||
+    normalized.includes("flowchart") ||
+    normalized.includes("数据流图") ||
+    normalized.includes("data flow")
+  ) {
+    return {
+      message: "已创建 Mermaid 图。",
+      operations: [
+        {
+          type: "create_node",
+          node: {
+            id: createId("mermaid"),
+            type: "mermaid",
+            name: "Mermaid 图",
+            position: { x: 520, y: 180, width: 420, height: 280 },
+            props: {
+              title: "Mermaid 图",
+              diagramType: "flowchart",
+              theme: "neutral",
+              source: "flowchart TD\n  A[输入] --> B[处理]\n  B --> C[输出]",
+            },
+            permissions: { userEditable: true, agentEditable: true, deletable: true },
+            metadata: { createdBy: "agent", updatedBy: "agent", createdAt: nowIso(), updatedAt: nowIso() },
+          },
+        },
+      ],
+    };
+  }
+
   if (normalized.includes("图表") || normalized.includes("/chart") || normalized.includes("chart")) {
     return {
       message: "已在画板中添加趋势图。",

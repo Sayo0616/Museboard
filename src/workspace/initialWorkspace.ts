@@ -93,12 +93,14 @@ export const initialWorkspace: Workspace = {
         },
         {
           id: "flow_approval",
-          type: "flowchart",
+          type: "mermaid",
           name: "审批流程",
           position: { x: 930, y: 252, width: 310, height: 222 },
           props: {
             title: "审批流程",
-            steps: ["提交参数", "财务复核", "主管确认"],
+            diagramType: "flowchart",
+            theme: "neutral",
+            source: "flowchart TD\n  A[提交参数] --> B[财务复核]\n  B --> C[主管确认]",
           },
           permissions: { userEditable: true, agentEditable: true, deletable: true },
           metadata: { createdBy: "agent", updatedBy: "agent", createdAt: timestamp, updatedAt: timestamp },

@@ -71,7 +71,7 @@ function pickKeyProps(node: CanvasNode): Record<string, unknown> {
     button: ["label", "action"],
     slider: ["label", "min", "max", "step", "value", "unit"],
     chart: ["title", "chartType", "data", "labels"],
-    flowchart: ["title", "steps"],
+    mermaid: ["title", "diagramType", "source"],
     table: ["columns", "rows"],
     card: ["title", "value", "detail"],
     container: ["title", "detail"],
