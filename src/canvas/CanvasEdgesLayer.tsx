@@ -61,6 +61,7 @@ export function CanvasEdgesLayer({
                 className="canvas-edge-hit"
                 d={path}
                 onPointerDown={(event) => {
+                  if (event.button !== 0) return;
                   event.preventDefault();
                   event.stopPropagation();
                   onSelectEdge(edge.id, event.shiftKey || event.metaKey || event.ctrlKey);

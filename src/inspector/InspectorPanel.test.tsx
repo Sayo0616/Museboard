@@ -43,6 +43,9 @@ beforeEach(() => {
     workspace: createWorkspace(node),
     selectedNodeIds: [node.id],
     selectedEdgeIds: [],
+    activeNodeId: node.id,
+    activeEdgeId: null,
+    hoveredNodeId: null,
     messages: [],
     recentUserEvents: [],
     mode: "edit",
@@ -70,5 +73,25 @@ describe("InspectorPanel Mermaid fields", () => {
 
     const stored = useWorkspaceStore.getState().workspace.pages[0].nodes[0];
     expect(stored.props.source).toBe(nextSource);
+  });
+
+  it("shows the active node instead of the first selected node", () => {
+    const activeNode = createMermaidNode();
+    const selectedOnlyNode = { ...createMermaidNode(), id: "selected_only", name: "Selected only" };
+
+    useWorkspaceStore.setState({
+      workspace: {
+        ...createWorkspace(activeNode),
+        pages: [{ id: "page_test", name: "Test page", nodes: [activeNode, selectedOnlyNode], edges: [] }],
+      },
+      selectedNodeIds: [selectedOnlyNode.id],
+      activeNodeId: activeNode.id,
+      activeEdgeId: null,
+    });
+
+    render(<InspectorPanel />);
+
+    expect(screen.getByText("Mermaid node")).toBeInTheDocument();
+    expect(screen.queryByText("Selected only")).not.toBeInTheDocument();
   });
 });

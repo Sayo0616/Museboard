@@ -18,6 +18,9 @@ type WorkspaceState = {
   workspace: Workspace;
   selectedNodeIds: string[];
   selectedEdgeIds: string[];
+  activeNodeId: string | null;
+  activeEdgeId: string | null;
+  hoveredNodeId: string | null;
   messages: ChatMessage[];
   recentUserEvents: string[];
   mode: WorkspaceMode;
@@ -35,6 +38,9 @@ type WorkspaceState = {
   selectNode: (nodeId: string | null, append?: boolean) => void;
   selectEdge: (edgeId: string | null, append?: boolean) => void;
   setSelectedNodeIds: (nodeIds: string[]) => void;
+  setActiveNode: (nodeId: string | null) => void;
+  setActiveEdge: (edgeId: string | null) => void;
+  setHoveredNode: (nodeId: string | null) => void;
   setMode: (mode: WorkspaceMode) => void;
   setAgentPermissionLevel: (level: AgentPermissionLevel) => void;
   setAgentTransport: (transport: AgentTransport) => void;
@@ -42,6 +48,9 @@ type WorkspaceState = {
   updateNode: (nodeId: string, patch: Record<string, unknown>, eventLabel?: string) => void;
   moveNode: (nodeId: string, x: number, y: number) => void;
   resizeNode: (nodeId: string, x: number, y: number, width: number, height: number) => void;
+  duplicateNode: (nodeId: string) => void;
+  deleteNode: (nodeId: string) => void;
+  toggleLockNode: (nodeId: string) => void;
   duplicateSelectedNodes: () => void;
   deleteSelectedNodes: () => void;
   toggleLockSelectedNodes: () => void;
@@ -81,6 +90,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspace: initialWorkspace,
   selectedNodeIds: ["slider_budget"],
   selectedEdgeIds: [],
+  activeNodeId: "slider_budget",
+  activeEdgeId: null,
+  hoveredNodeId: null,
   messages: [
     {
       id: "message_welcome",
@@ -106,34 +118,44 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set((state) => {
       if (!nodeId) {
         return state.selectedNodeIds.length === 0 && state.selectedEdgeIds.length === 0
-          ? state
-          : { selectedNodeIds: [], selectedEdgeIds: [] };
+          ? { activeNodeId: null, activeEdgeId: null }
+          : { selectedNodeIds: [], selectedEdgeIds: [], activeNodeId: null, activeEdgeId: null };
       }
       if (append) {
         const exists = state.selectedNodeIds.includes(nodeId);
+        const selectedNodeIds = exists
+          ? state.selectedNodeIds.filter((id) => id !== nodeId)
+          : [...state.selectedNodeIds, nodeId];
         return {
-          selectedNodeIds: exists
-            ? state.selectedNodeIds.filter((id) => id !== nodeId)
-            : [...state.selectedNodeIds, nodeId],
+          selectedNodeIds,
           selectedEdgeIds: [],
+          activeNodeId: exists && state.activeNodeId === nodeId ? selectedNodeIds[0] ?? null : nodeId,
+          activeEdgeId: null,
         };
       }
-      if (state.selectedNodeIds.length === 1 && state.selectedNodeIds[0] === nodeId) return state;
-      return { selectedNodeIds: [nodeId], selectedEdgeIds: [] };
+      if (state.selectedNodeIds.length === 1 && state.selectedNodeIds[0] === nodeId) {
+        return state.activeNodeId === nodeId && !state.activeEdgeId ? state : { activeNodeId: nodeId, activeEdgeId: null };
+      }
+      return { selectedNodeIds: [nodeId], selectedEdgeIds: [], activeNodeId: nodeId, activeEdgeId: null };
     });
   },
   selectEdge: (edgeId, append = false) => {
     set((state) => {
-      if (!edgeId) return state.selectedEdgeIds.length === 0 ? state : { selectedEdgeIds: [] };
+      if (!edgeId) return state.selectedEdgeIds.length === 0 ? { activeEdgeId: null } : { selectedEdgeIds: [], activeEdgeId: null };
       if (append) {
         const exists = state.selectedEdgeIds.includes(edgeId);
+        const selectedEdgeIds = exists ? state.selectedEdgeIds.filter((id) => id !== edgeId) : [...state.selectedEdgeIds, edgeId];
         return {
           selectedNodeIds: [],
-          selectedEdgeIds: exists ? state.selectedEdgeIds.filter((id) => id !== edgeId) : [...state.selectedEdgeIds, edgeId],
+          selectedEdgeIds,
+          activeNodeId: null,
+          activeEdgeId: exists && state.activeEdgeId === edgeId ? selectedEdgeIds[0] ?? null : edgeId,
         };
       }
-      if (state.selectedEdgeIds.length === 1 && state.selectedEdgeIds[0] === edgeId) return state;
-      return { selectedNodeIds: [], selectedEdgeIds: [edgeId] };
+      if (state.selectedEdgeIds.length === 1 && state.selectedEdgeIds[0] === edgeId) {
+        return state.activeEdgeId === edgeId && !state.activeNodeId ? state : { activeNodeId: null, activeEdgeId: edgeId };
+      }
+      return { selectedNodeIds: [], selectedEdgeIds: [edgeId], activeNodeId: null, activeEdgeId: edgeId };
     });
   },
   setSelectedNodeIds: (nodeIds) => {
@@ -142,9 +164,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       if (state.selectedNodeIds.length === uniqueNodeIds.length && state.selectedNodeIds.every((id, index) => id === uniqueNodeIds[index])) {
         return state;
       }
-      return { selectedNodeIds: uniqueNodeIds, selectedEdgeIds: [] };
+      return {
+        selectedNodeIds: uniqueNodeIds,
+        selectedEdgeIds: [],
+        activeNodeId: uniqueNodeIds.includes(state.activeNodeId ?? "") ? state.activeNodeId : uniqueNodeIds[0] ?? null,
+        activeEdgeId: null,
+      };
     });
   },
+  setActiveNode: (nodeId) => set({ activeNodeId: nodeId, activeEdgeId: null }),
+  setActiveEdge: (edgeId) => set({ activeNodeId: null, activeEdgeId: edgeId }),
+  setHoveredNode: (nodeId) => set({ hoveredNodeId: nodeId }),
   setMode: (mode) => set({ mode }),
   setAgentPermissionLevel: (level) => set({ agentPermissionLevel: level }),
   setAgentTransport: (transport) => set({ agentTransport: transport }),
@@ -177,6 +207,72 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       `缩放 ${nodeId} 到 ${Math.round(width)}x${Math.round(height)}`,
     );
   },
+  duplicateNode: (nodeId) => {
+    const state = get();
+    const page = getActivePage(state.workspace);
+    const node = page.nodes.find((item) => item.id === nodeId);
+    if (!node) return;
+
+    const id = createId(node.type);
+    const nextNode = {
+      ...structuredClone(node),
+      id,
+      name: `${node.name} 副本`,
+      position: {
+        ...node.position,
+        x: node.position.x + 28,
+        y: node.position.y + 28,
+      },
+      metadata: { createdBy: "user" as const, updatedBy: "user" as const, createdAt: nowIso(), updatedAt: nowIso() },
+    };
+
+    commitResponse({ message: "已复制对象。", operations: [{ type: "create_node", node: nextNode }] }, set, get, false, "user", `复制 ${node.name}`);
+    set({ selectedNodeIds: [id], selectedEdgeIds: [], activeNodeId: id, activeEdgeId: null });
+  },
+  deleteNode: (nodeId) => {
+    const state = get();
+    const page = getActivePage(state.workspace);
+    const node = page.nodes.find((item) => item.id === nodeId);
+    if (!node) return;
+
+    commitResponse({ message: "已删除对象。", operations: [{ type: "delete_node", nodeId }] }, set, get, false, "user", `删除 ${node.name}`);
+    set((current) => ({
+      selectedNodeIds: current.selectedNodeIds.filter((id) => id !== nodeId),
+      selectedEdgeIds: current.selectedEdgeIds,
+      activeNodeId: current.activeNodeId === nodeId ? null : current.activeNodeId,
+      activeEdgeId: current.activeEdgeId,
+      hoveredNodeId: current.hoveredNodeId === nodeId ? null : current.hoveredNodeId,
+    }));
+  },
+  toggleLockNode: (nodeId) => {
+    const state = get();
+    const page = getActivePage(state.workspace);
+    const node = page.nodes.find((item) => item.id === nodeId);
+    if (!node) return;
+    const shouldUnlock = node.permissions?.agentEditable === false;
+
+    commitResponse(
+      {
+        message: shouldUnlock ? "已解锁对象。" : "已锁定对象。",
+        operations: [
+          {
+            type: "update_node",
+            nodeId,
+            patch: {
+              "permissions.userEditable": node.permissions?.userEditable ?? true,
+              "permissions.agentEditable": shouldUnlock,
+              "permissions.deletable": node.permissions?.deletable ?? true,
+            },
+          },
+        ],
+      },
+      set,
+      get,
+      false,
+      "user",
+      shouldUnlock ? `解锁 ${node.name}` : `锁定 ${node.name}`,
+    );
+  },
   duplicateSelectedNodes: () => {
     const state = get();
     const page = getActivePage(state.workspace);
@@ -202,7 +298,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     });
 
     commitResponse({ message: `已复制 ${operations.length} 个对象。`, operations }, set, get, false, "user", `复制 ${operations.length} 个对象`);
-    set({ selectedNodeIds: operations.map((operation) => operation.node.id) });
+    set({ selectedNodeIds: operations.map((operation) => operation.node.id), activeNodeId: operations[0]?.node.id ?? null, activeEdgeId: null });
   },
   deleteSelectedNodes: () => {
     const selectedNodeIds = get().selectedNodeIds;
@@ -218,7 +314,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       "user",
       `删除 ${selectedNodeIds.length} 个对象`,
     );
-    set({ selectedNodeIds: [], selectedEdgeIds: [] });
+    set({ selectedNodeIds: [], selectedEdgeIds: [], activeNodeId: null, activeEdgeId: null });
   },
   toggleLockSelectedNodes: () => {
     const state = get();
@@ -300,7 +396,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       "user",
       `删除 ${edgeIds.length} 条连接`,
     );
-    set({ selectedEdgeIds: [] });
+    set({ selectedEdgeIds: [], activeEdgeId: null });
   },
   exportWorkspaceJson: () => {
     const workspace = get().workspace;
@@ -341,7 +437,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         version: state.workspace.version + 1,
         updatedAt: nowIso(),
       };
-      return commitWorkspaceState(state, nextWorkspace, "新增页面");
+      return { ...commitWorkspaceState(state, nextWorkspace, "新增页面"), selectedNodeIds: [], selectedEdgeIds: [], activeNodeId: null, activeEdgeId: null };
     });
   },
   duplicatePage: () => {
@@ -368,7 +464,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         version: state.workspace.version + 1,
         updatedAt: nowIso(),
       };
-      return commitWorkspaceState(state, nextWorkspace, "复制页面");
+      return { ...commitWorkspaceState(state, nextWorkspace, "复制页面"), selectedNodeIds: [], selectedEdgeIds: [], activeNodeId: null, activeEdgeId: null };
     });
   },
   deletePage: (pageId) => {
@@ -383,13 +479,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         version: state.workspace.version + 1,
         updatedAt: nowIso(),
       };
-      return { ...commitWorkspaceState(state, nextWorkspace, "删除页面"), selectedNodeIds: [], selectedEdgeIds: [] };
+      return { ...commitWorkspaceState(state, nextWorkspace, "删除页面"), selectedNodeIds: [], selectedEdgeIds: [], activeNodeId: null, activeEdgeId: null };
     });
   },
   setActivePage: (pageId) => {
     set((state) => {
       if (!state.workspace.pages.some((page) => page.id === pageId)) return state;
-      return { workspace: { ...state.workspace, activePageId: pageId }, selectedNodeIds: [], selectedEdgeIds: [] };
+      return { workspace: { ...state.workspace, activePageId: pageId }, selectedNodeIds: [], selectedEdgeIds: [], activeNodeId: null, activeEdgeId: null };
     });
   },
   restoreVersion: (versionId) => {
@@ -402,6 +498,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         ...commitWorkspaceState(state, nextWorkspace, `恢复 ${snapshot.label}`),
         selectedNodeIds: [],
         selectedEdgeIds: [],
+        activeNodeId: null,
+        activeEdgeId: null,
         pendingResponse: null,
         lastAppliedResponse: null,
       };
@@ -548,6 +646,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         future: [state.workspace, ...state.future],
         selectedNodeIds: [],
         selectedEdgeIds: [],
+        activeNodeId: null,
+        activeEdgeId: null,
         userEditBase: null,
         userEditLabel: null,
         lastAppliedResponse: null,
@@ -565,6 +665,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         future: state.future.slice(1),
         selectedNodeIds: [],
         selectedEdgeIds: [],
+        activeNodeId: null,
+        activeEdgeId: null,
         userEditBase: null,
         userEditLabel: null,
         lastAppliedResponse: null,
@@ -596,6 +698,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       saveState: "saved",
       selectedNodeIds: [],
       selectedEdgeIds: [],
+      activeNodeId: null,
+      activeEdgeId: null,
     }));
   },
 }));
@@ -611,6 +715,9 @@ function commitResponse(
   try {
     const state = get();
     const nextWorkspace = applyOperations(state.workspace, response.operations, actor);
+    const nextPage = getActivePage(nextWorkspace);
+    const nextNodeIds = new Set(nextPage.nodes.map((node) => node.id));
+    const nextEdgeIds = new Set(nextPage.edges.map((edge) => edge.id));
     const agentMessage: ChatMessage = {
       id: createId("message_agent"),
       role: "agent",
@@ -622,6 +729,11 @@ function commitResponse(
       workspace: nextWorkspace,
       past: [...state.past, state.workspace].slice(-40),
       future: [],
+      selectedNodeIds: state.selectedNodeIds.filter((nodeId) => nextNodeIds.has(nodeId)),
+      selectedEdgeIds: state.selectedEdgeIds.filter((edgeId) => nextEdgeIds.has(edgeId)),
+      activeNodeId: state.activeNodeId && nextNodeIds.has(state.activeNodeId) ? state.activeNodeId : null,
+      activeEdgeId: state.activeEdgeId && nextEdgeIds.has(state.activeEdgeId) ? state.activeEdgeId : null,
+      hoveredNodeId: state.hoveredNodeId && nextNodeIds.has(state.hoveredNodeId) ? state.hoveredNodeId : null,
       messages: showMessage ? [...state.messages, agentMessage] : state.messages,
       lastAppliedResponse: showMessage && actor === "agent" ? response : state.lastAppliedResponse,
       versionHistory: pushVersionSnapshot(state.versionHistory, nextWorkspace, eventLabel ?? response.message, state.workspace),

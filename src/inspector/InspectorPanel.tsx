@@ -11,8 +11,8 @@ import { getAtPath } from "../utils/patch";
 
 export function InspectorPanel() {
   const workspace = useWorkspaceStore((state) => state.workspace);
-  const selectedNodeIds = useWorkspaceStore((state) => state.selectedNodeIds);
-  const selectedEdgeIds = useWorkspaceStore((state) => state.selectedEdgeIds);
+  const activeNodeId = useWorkspaceStore((state) => state.activeNodeId);
+  const activeEdgeId = useWorkspaceStore((state) => state.activeEdgeId);
   const beginUserEdit = useWorkspaceStore((state) => state.beginUserEdit);
   const previewUserEdit = useWorkspaceStore((state) => state.previewUserEdit);
   const commitUserEdit = useWorkspaceStore((state) => state.commitUserEdit);
@@ -20,8 +20,8 @@ export function InspectorPanel() {
   const updateNode = useWorkspaceStore((state) => state.updateNode);
   const deleteEdgesForSelection = useWorkspaceStore((state) => state.deleteEdgesForSelection);
   const activePage = getActivePage(workspace);
-  const selectedNode = activePage.nodes.find((node) => node.id === selectedNodeIds[0]);
-  const selectedEdge = activePage.edges.find((edge) => edge.id === selectedEdgeIds[0]);
+  const selectedNode = activePage.nodes.find((node) => node.id === activeNodeId);
+  const selectedEdge = activePage.edges.find((edge) => edge.id === activeEdgeId);
 
   if (!selectedNode && selectedEdge) {
     const source = activePage.nodes.find((node) => node.id === selectedEdge.sourceNodeId);

@@ -94,8 +94,11 @@ export class MuseboardNodeShapeUtil extends ShapeUtil<MuseboardShape> {
 function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
   const node = useWorkspaceStore((state) => getActivePage(state.workspace).nodes.find((item) => item.id === shape.props.nodeId));
   const isSelected = useWorkspaceStore((state) => state.selectedNodeIds.includes(shape.props.nodeId));
+  const isActive = useWorkspaceStore((state) => state.activeNodeId === shape.props.nodeId);
+  const isHovered = useWorkspaceStore((state) => state.hoveredNodeId === shape.props.nodeId);
   const mode = useWorkspaceStore((state) => state.mode);
   const selectNode = useWorkspaceStore((state) => state.selectNode);
+  const setHoveredNode = useWorkspaceStore((state) => state.setHoveredNode);
   const beginUserEdit = useWorkspaceStore((state) => state.beginUserEdit);
   const previewUserEdit = useWorkspaceStore((state) => state.previewUserEdit);
   const commitUserEdit = useWorkspaceStore((state) => state.commitUserEdit);
@@ -113,27 +116,20 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
   const agentLocked = node.permissions?.agentEditable === false;
 
   return (
-    <HTMLContainer
-      className={`tldraw-node-host node-${node.type}`}
-      onPointerDownCapture={(event) => {
-        if ((event.target as HTMLElement).closest(".node-select-toggle")) return;
-        selectNode(node.id, event.shiftKey || event.metaKey || event.ctrlKey);
-      }}
-      onClickCapture={(event) => {
-        if ((event.target as HTMLElement).closest(".node-select-toggle")) return;
-        selectNode(node.id, event.shiftKey || event.metaKey || event.ctrlKey);
-      }}
-    >
+    <HTMLContainer className={`tldraw-node-host node-${node.type}`}>
       <div
         data-node-id={node.id}
-        className={`canvas-node tldraw-node-shell ${isSelected ? "selected" : ""} ${layoutLocked ? "layout-locked" : ""} ${
+        className={`canvas-node tldraw-node-shell ${isHovered ? "hovered" : ""} ${isSelected ? "selected" : ""} ${isActive ? "active" : ""} ${layoutLocked ? "layout-locked" : ""} ${
           agentLocked ? "agent-locked" : ""
         }`}
         style={{ width: shape.props.w, height: shape.props.h }}
+        onPointerEnter={() => setHoveredNode(node.id)}
+        onPointerLeave={() => setHoveredNode(null)}
       >
         <div
           className="node-drag-handle"
           onPointerDown={(event) => {
+            if (event.button !== 0) return;
             if (layoutLocked) return;
             event.stopPropagation();
             selectNode(node.id, event.shiftKey || event.metaKey || event.ctrlKey);
@@ -181,6 +177,7 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
               type="button"
               aria-label={`切换选择 ${node.name}`}
               onPointerDown={(event) => {
+                if (event.button !== 0) return;
                 event.preventDefault();
                 event.stopPropagation();
                 selectNode(node.id, true);
@@ -205,6 +202,7 @@ function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
             type="button"
             aria-label={`Resize ${handle}`}
             onPointerDown={(event) => {
+              if (event.button !== 0) return;
               event.preventDefault();
               event.stopPropagation();
               selectNode(node.id, event.shiftKey || event.metaKey || event.ctrlKey);

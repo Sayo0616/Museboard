@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { PanelRightClose, PanelRightOpen } from "lucide-react";
-import { TldrawEditor, defaultTools, type Editor, type TLShape } from "tldraw";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { Copy, LockKeyhole, PanelRightClose, PanelRightOpen, Trash2, UnlockKeyhole } from "lucide-react";
+import { TldrawEditor, Vec, defaultTools, type Editor, type TLShape } from "tldraw";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasEdgesLayer } from "./CanvasEdgesLayer";
 import { MuseboardNodeShapeUtil, museboardShapeType, shapeIdForNode } from "./TldrawNodeShape";
@@ -19,16 +19,27 @@ type SelectionBox = {
   currentY: number;
 };
 
+type NodeContextMenu = {
+  nodeId: string;
+  x: number;
+  y: number;
+};
+
 export function CanvasPanel() {
   const workspace = useWorkspaceStore((state) => state.workspace);
   const selectNode = useWorkspaceStore((state) => state.selectNode);
   const selectEdge = useWorkspaceStore((state) => state.selectEdge);
+  const setActiveNode = useWorkspaceStore((state) => state.setActiveNode);
+  const setHoveredNode = useWorkspaceStore((state) => state.setHoveredNode);
   const moveNode = useWorkspaceStore((state) => state.moveNode);
   const resizeNode = useWorkspaceStore((state) => state.resizeNode);
   const mode = useWorkspaceStore((state) => state.mode);
   const selectedNodeIds = useWorkspaceStore((state) => state.selectedNodeIds);
   const selectedEdgeIds = useWorkspaceStore((state) => state.selectedEdgeIds);
   const setSelectedNodeIds = useWorkspaceStore((state) => state.setSelectedNodeIds);
+  const duplicateNode = useWorkspaceStore((state) => state.duplicateNode);
+  const deleteNode = useWorkspaceStore((state) => state.deleteNode);
+  const toggleLockNode = useWorkspaceStore((state) => state.toggleLockNode);
   const createEdgeFromSelection = useWorkspaceStore((state) => state.createEdgeFromSelection);
   const deleteEdgesForSelection = useWorkspaceStore((state) => state.deleteEdgesForSelection);
   const activePage = getActivePage(workspace);
@@ -36,13 +47,18 @@ export function CanvasPanel() {
   const edges = activePage.edges;
   const editorRef = useRef<Editor | null>(null);
   const isSyncingTldrawRef = useRef(false);
+  const suppressTldrawSelectionRef = useRef(false);
   const modeRef = useRef(mode);
   const nodesRef = useRef(nodes);
+  const selectedNodeIdsRef = useRef(selectedNodeIds);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [zoom, setZoom] = useState(1);
   const [viewportRevision, setViewportRevision] = useState(0);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
+  const [nodeContextMenu, setNodeContextMenu] = useState<NodeContextMenu | null>(null);
+  const [isMiddlePanning, setIsMiddlePanning] = useState(false);
+  const contextNode = nodeContextMenu ? nodes.find((node) => node.id === nodeContextMenu.nodeId) : null;
 
   useEffect(() => {
     modeRef.current = mode;
@@ -51,6 +67,78 @@ export function CanvasPanel() {
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
+
+  useEffect(() => {
+    selectedNodeIdsRef.current = selectedNodeIds;
+  }, [selectedNodeIds]);
+
+  useEffect(() => {
+    if (!nodeContextMenu) return;
+    if (!nodes.some((node) => node.id === nodeContextMenu.nodeId)) {
+      setNodeContextMenu(null);
+    }
+  }, [nodeContextMenu, nodes]);
+
+  const startMiddlePan = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setNodeContextMenu(null);
+    setSelectionBox(null);
+    setIsMiddlePanning(true);
+    suppressTldrawSelectionRef.current = true;
+    editor.stopCameraAnimation();
+
+    const start = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      camera: editor.getCamera(),
+    };
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      moveEvent.stopImmediatePropagation();
+      editor.setCamera({
+        x: start.camera.x + moveEvent.clientX - start.clientX,
+        y: start.camera.y + moveEvent.clientY - start.clientY,
+        z: start.camera.z,
+      });
+      setZoom(editor.getZoomLevel());
+      setViewportRevision((current) => current + 1);
+    };
+
+    const stopPan = (upEvent: PointerEvent) => {
+      upEvent.preventDefault();
+      upEvent.stopImmediatePropagation();
+      window.removeEventListener("pointermove", handleMove, true);
+      window.removeEventListener("pointerup", stopPan, true);
+      window.removeEventListener("pointercancel", stopPan, true);
+      setIsMiddlePanning(false);
+      window.setTimeout(() => {
+        suppressTldrawSelectionRef.current = false;
+      }, 80);
+    };
+
+    window.addEventListener("pointermove", handleMove, true);
+    window.addEventListener("pointerup", stopPan, true);
+    window.addEventListener("pointercancel", stopPan, true);
+  }, []);
+
+  const handleWheelZoom = useCallback((event: ReactWheelEvent<HTMLElement>) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const point = new Vec(event.clientX, event.clientY);
+    if (event.deltaY < 0) {
+      editor.zoomIn(point, { animation: { duration: 80 } });
+    } else if (event.deltaY > 0) {
+      editor.zoomOut(point, { animation: { duration: 80 } });
+    }
+    setZoom(editor.getZoomLevel());
+    setViewportRevision((current) => current + 1);
+  }, []);
 
   const syncWorkspaceToTldraw = useCallback((editor: Editor, nextNodes: CanvasNode[]) => {
     isSyncingTldrawRef.current = true;
@@ -132,22 +220,58 @@ export function CanvasPanel() {
   return (
     <div className="canvas-panel">
       <div
-        className="tldraw-host"
+        className={`tldraw-host ${isMiddlePanning ? "middle-panning" : ""}`}
+        onContextMenu={(event) => {
+          event.preventDefault();
+        }}
+        onWheelCapture={handleWheelZoom}
+        onPointerMoveCapture={(event) => {
+          const nodeElement = (event.target as HTMLElement).closest<HTMLElement>("[data-node-id]");
+          setHoveredNode(nodeElement?.dataset.nodeId ?? null);
+        }}
+        onPointerLeave={() => setHoveredNode(null)}
         onPointerDownCapture={(event) => {
           const target = event.target as HTMLElement;
           blurActiveEditableIfOutside(target);
+          if (event.button === 1) {
+            startMiddlePan(event);
+            return;
+          }
           if (target.closest(".node-select-toggle")) return;
+          if (target.closest(".node-drag-handle")) return;
+          if (target.closest(".node-resize-handle")) return;
           if (target.closest(".canvas-edge-hit")) return;
           if (target.closest(".edge-controls")) return;
           const nodeElement = target.closest<HTMLElement>("[data-node-id]");
           if (nodeElement) {
-            selectNode(nodeElement.dataset.nodeId ?? null, event.shiftKey || event.metaKey || event.ctrlKey);
+            const nodeId = nodeElement.dataset.nodeId ?? null;
+            if (event.button === 2 && nodeId) {
+              event.preventDefault();
+              event.stopPropagation();
+              suppressTldrawSelectionRef.current = true;
+              const hostRect = event.currentTarget.getBoundingClientRect();
+              setActiveNode(nodeId);
+              setNodeContextMenu({
+                nodeId,
+                x: event.clientX - hostRect.left,
+                y: event.clientY - hostRect.top,
+              });
+              window.setTimeout(() => {
+                suppressTldrawSelectionRef.current = false;
+              }, 80);
+              return;
+            }
+            if (event.button === 0) {
+              setNodeContextMenu(null);
+              selectNode(nodeId, event.shiftKey || event.metaKey || event.ctrlKey);
+            }
             return;
           }
 
           if (event.button !== 0) return;
           event.preventDefault();
           event.stopPropagation();
+          setNodeContextMenu(null);
           selectNode(null);
 
           const hostRect = event.currentTarget.getBoundingClientRect();
@@ -211,6 +335,21 @@ export function CanvasPanel() {
                     return shape.type === museboardShapeType;
                   })
                   .map((shape) => shape.props.nodeId);
+                if (suppressTldrawSelectionRef.current && !areStringListsEqual(selectedNodeIdsFromEditor, selectedNodeIdsRef.current)) {
+                  isSyncingTldrawRef.current = true;
+                  try {
+                    editor.setSelectedShapes(
+                      selectedNodeIdsRef.current.map(shapeIdForNode).filter((shapeId) => Boolean(editor.getShape(shapeId))),
+                    );
+                  } finally {
+                    queueMicrotask(() => {
+                      isSyncingTldrawRef.current = false;
+                    });
+                  }
+                  setZoom(editor.getZoomLevel());
+                  setViewportRevision((current) => current + 1);
+                  return;
+                }
                 if (selectedNodeIdsFromEditor.length > 0) {
                   setSelectedNodeIds(selectedNodeIdsFromEditor);
                 }
@@ -244,6 +383,44 @@ export function CanvasPanel() {
             };
           }}
         />
+        {contextNode ? (
+          <div className="node-context-menu" style={{ left: nodeContextMenu?.x, top: nodeContextMenu?.y }} role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                duplicateNode(contextNode.id);
+                setNodeContextMenu(null);
+              }}
+            >
+              <Copy size={14} />
+              <span>复制</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                toggleLockNode(contextNode.id);
+                setNodeContextMenu(null);
+              }}
+            >
+              {contextNode.permissions?.agentEditable === false ? <UnlockKeyhole size={14} /> : <LockKeyhole size={14} />}
+              <span>{contextNode.permissions?.agentEditable === false ? "解锁 Agent" : "锁定 Agent"}</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="danger"
+              onClick={() => {
+                deleteNode(contextNode.id);
+                setNodeContextMenu(null);
+              }}
+            >
+              <Trash2 size={14} />
+              <span>删除</span>
+            </button>
+          </div>
+        ) : null}
         <CanvasEdgesLayer
           nodes={nodes}
           edges={edges}
@@ -318,6 +495,11 @@ function blurActiveEditableIfOutside(target: HTMLElement) {
 function areShapeIdListsEqual(current: unknown[], next: unknown[]) {
   if (current.length !== next.length) return false;
   return current.every((shapeId, index) => shapeId === next[index]);
+}
+
+function areStringListsEqual(current: string[], next: string[]) {
+  if (current.length !== next.length) return false;
+  return current.every((item, index) => item === next[index]);
 }
 
 function selectionBoxStyle(box: SelectionBox) {
