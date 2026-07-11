@@ -1,8 +1,18 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, beforeEach } from "vitest";
-import { SliderRenderer, TableRenderer, TextRenderer } from "./renderers";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, beforeEach, vi } from "vitest";
+import { SliderRenderer, TableRenderer, TextRenderer, MermaidRenderer } from "./renderers";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
 import type { CanvasNode, CanvasNodeType, Workspace } from "../workspace/workspaceTypes";
+
+const mermaidMock = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  parse: vi.fn(),
+  render: vi.fn(),
+}));
+
+vi.mock("mermaid", () => ({
+  default: mermaidMock,
+}));
 
 const timestamp = "2026-01-01T00:00:00.000Z";
 
@@ -59,7 +69,97 @@ function storedNode<TProps extends Record<string, unknown>>(nodeId: string): Can
   return node as CanvasNode & { props: TProps };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+const mermaidCodeExamples = [
+  {
+    diagramType: "flowchart",
+    source: `flowchart TD
+  Start([Start]) --> Plan[Plan release]
+  Plan --> Review{Approved?}
+  Review -- Yes --> Ship[Ship]
+  Review -- No --> Plan`,
+  },
+  {
+    diagramType: "sequence",
+    source: `sequenceDiagram
+  participant User
+  participant Agent
+  participant Board
+  User->>Agent: Request diagram
+  Agent->>Board: create_node
+  Board-->>User: Mermaid node`,
+  },
+  {
+    diagramType: "state",
+    source: `stateDiagram-v2
+  [*] --> Draft
+  Draft --> Review: submit
+  Review --> Published: approve
+  Review --> Draft: revise
+  Published --> [*]`,
+  },
+  {
+    diagramType: "class",
+    source: `classDiagram
+  class CanvasNode {
+    +string id
+    +string type
+    +object props
+  }
+  class MermaidNode
+  CanvasNode <|-- MermaidNode
+  MermaidNode : +string source
+  MermaidNode : +string diagramType`,
+  },
+  {
+    diagramType: "er",
+    source: `erDiagram
+  WORKSPACE ||--o{ PAGE : contains
+  PAGE ||--o{ CANVAS_NODE : has
+  CANVAS_NODE {
+    string id
+    string type
+    string name
+  }`,
+  },
+  {
+    diagramType: "gantt",
+    source: `gantt
+  title Release Plan
+  dateFormat  YYYY-MM-DD
+  section Build
+  Component tests :done, tests, 2026-07-11, 1d
+  Manual QA :active, manual, after tests, 2d`,
+  },
+  {
+    diagramType: "mindmap",
+    source: `mindmap
+  root((Museboard))
+    Canvas
+      Mermaid node
+      Inspector
+    Chat
+      Short messages
+      Operations`,
+  },
+] as const;
+
 beforeEach(() => {
+  mermaidMock.initialize.mockClear();
+  mermaidMock.parse.mockReset();
+  mermaidMock.render.mockReset();
+  mermaidMock.parse.mockResolvedValue({ diagramType: "flowchart-v2" });
+  mermaidMock.render.mockResolvedValue({ svg: "<svg><text>Mock Mermaid</text></svg>" });
+
   useWorkspaceStore.setState({
     workspace: createWorkspace([]),
     selectedNodeIds: [],
@@ -75,6 +175,172 @@ beforeEach(() => {
     userEditBase: null,
     userEditLabel: null,
     saveState: "dirty",
+  });
+});
+
+describe("MermaidRenderer", () => {
+  it("renders Mermaid source through the Mermaid library", async () => {
+    const node = createNode("mermaid", {
+      title: "Pipeline",
+      source: "flowchart TD\n  A[Input] --> B[Output]",
+      diagramType: "flowchart",
+      theme: "neutral",
+    });
+    seedWorkspace(node);
+
+    render(<MermaidRenderer node={node} />);
+
+    await waitFor(() => expect(screen.getByText("Mock Mermaid")).toBeInTheDocument());
+    expect(mermaidMock.initialize).toHaveBeenCalledWith(expect.objectContaining({ startOnLoad: false, securityLevel: "strict", theme: "neutral" }));
+    expect(mermaidMock.parse).toHaveBeenCalledWith("flowchart TD\n  A[Input] --> B[Output]");
+    expect(mermaidMock.render).toHaveBeenCalledWith(expect.stringMatching(/^mermaid-mermaid_node-/), "flowchart TD\n  A[Input] --> B[Output]");
+  });
+
+  it.each(mermaidCodeExamples)("renders supported $diagramType Mermaid code examples", async ({ diagramType, source }) => {
+    const node = createNode(
+      "mermaid",
+      {
+        title: `${diagramType} example`,
+        source,
+        diagramType,
+        theme: "neutral",
+      },
+      { id: `mermaid_${diagramType}_node` },
+    );
+    seedWorkspace(node);
+
+    render(<MermaidRenderer node={node} />);
+
+    await waitFor(() => expect(screen.getByText("Mock Mermaid")).toBeInTheDocument());
+    expect(mermaidMock.parse).toHaveBeenCalledWith(source);
+    expect(mermaidMock.render).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`^mermaid-mermaid_${diagramType}_node-`)), source);
+  });
+
+  it("shows an empty-source error without loading Mermaid", async () => {
+    const node = createNode("mermaid", {
+      title: "Empty",
+      source: "   \n  ",
+      diagramType: "flowchart",
+      theme: "neutral",
+    });
+    seedWorkspace(node);
+
+    render(<MermaidRenderer node={node} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Mermaid source is empty.");
+    expect(mermaidMock.initialize).not.toHaveBeenCalled();
+    expect(mermaidMock.parse).not.toHaveBeenCalled();
+    expect(mermaidMock.render).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the neutral Mermaid theme for unsupported theme props", async () => {
+    const node = createNode("mermaid", {
+      title: "Unsupported theme",
+      source: "sequenceDiagram\n  A->>B: Ping",
+      diagramType: "sequence",
+      theme: "forest",
+    });
+    seedWorkspace(node);
+
+    render(<MermaidRenderer node={node} />);
+
+    await waitFor(() => expect(screen.getByText("Mock Mermaid")).toBeInTheDocument());
+    expect(mermaidMock.initialize).toHaveBeenCalledWith(expect.objectContaining({ theme: "neutral" }));
+  });
+
+  it("uses Mermaid default theme when explicitly configured", async () => {
+    const node = createNode("mermaid", {
+      title: "Default theme",
+      source: "stateDiagram-v2\n  [*] --> Ready",
+      diagramType: "state",
+      theme: "default",
+    });
+    seedWorkspace(node);
+
+    render(<MermaidRenderer node={node} />);
+
+    await waitFor(() => expect(screen.getByText("Mock Mermaid")).toBeInTheDocument());
+    expect(mermaidMock.initialize).toHaveBeenCalledWith(expect.objectContaining({ theme: "default" }));
+  });
+
+  it("re-renders when source changes and ignores stale async render results", async () => {
+    const oldSource = "flowchart TD\n  A[Old] --> B[Result]";
+    const nextSource = "flowchart TD\n  A[New] --> B[Result]";
+    const oldParse = deferred<unknown>();
+    const oldRender = deferred<{ svg: string }>();
+
+    mermaidMock.parse.mockImplementation((source: string) => (source === oldSource ? oldParse.promise : Promise.resolve({ diagramType: "flowchart-v2" })));
+    mermaidMock.render.mockImplementation((_id: string, source: string) =>
+      source === oldSource ? oldRender.promise : Promise.resolve({ svg: "<svg><text>New Mermaid</text></svg>" }),
+    );
+
+    const node = createNode("mermaid", {
+      title: "Changing",
+      source: oldSource,
+      diagramType: "flowchart",
+      theme: "neutral",
+    });
+    seedWorkspace(node);
+
+    const { rerender } = render(<MermaidRenderer node={node} />);
+    await waitFor(() => expect(mermaidMock.parse).toHaveBeenCalledWith(oldSource));
+
+    const updatedNode = {
+      ...node,
+      props: {
+        ...node.props,
+        source: nextSource,
+      },
+    };
+    rerender(<MermaidRenderer node={updatedNode} />);
+
+    expect(await screen.findByText("New Mermaid")).toBeInTheDocument();
+
+    await act(async () => {
+      oldParse.resolve({ diagramType: "flowchart-v2" });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(mermaidMock.render).toHaveBeenCalledWith(expect.any(String), oldSource));
+
+    await act(async () => {
+      oldRender.resolve({ svg: "<svg><text>Old Mermaid</text></svg>" });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("New Mermaid")).toBeInTheDocument();
+    expect(screen.queryByText("Old Mermaid")).not.toBeInTheDocument();
+  });
+
+  it("commits title edits to workspace JSON", () => {
+    const node = createNode("mermaid", {
+      title: "Pipeline",
+      source: "flowchart TD\n  A[Input] --> B[Output]",
+      diagramType: "flowchart",
+      theme: "neutral",
+    });
+    seedWorkspace(node);
+
+    render(<MermaidRenderer node={node} />);
+
+    fireEvent.change(screen.getByDisplayValue("Pipeline"), { target: { value: "Release flow" } });
+
+    expect(storedNode<{ title: string }>(node.id).props.title).toBe("Release flow");
+  });
+
+  it("shows a syntax error without clearing the node source", async () => {
+    mermaidMock.parse.mockRejectedValueOnce(new Error("Parse failed"));
+    const node = createNode("mermaid", {
+      title: "Broken",
+      source: "not a diagram",
+      diagramType: "unknown",
+      theme: "neutral",
+    });
+    seedWorkspace(node);
+
+    render(<MermaidRenderer node={node} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Parse failed");
+    expect(storedNode<{ source: string }>(node.id).props.source).toBe("not a diagram");
   });
 });
 
