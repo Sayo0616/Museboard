@@ -22,7 +22,7 @@ export async function downloadWorkspacePng(workspace: Workspace): Promise<void> 
   canvas.height = height;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("当前浏览器不支持 Canvas 导出。");
-  context.fillStyle = "#fdfcfc";
+  context.fillStyle = "#faf9f7";
   context.fillRect(0, 0, width, height);
   context.drawImage(image, 0, 0);
   URL.revokeObjectURL(url);
@@ -70,7 +70,7 @@ function workspaceToSvg(workspace: Workspace): string {
       const y = node.position.y + offsetY;
       const title = escapeXml(node.name);
       const body = escapeXml(compactNodeText(node));
-      return `<g><rect x="${x}" y="${y}" width="${node.position.width}" height="${node.position.height}" rx="8" fill="#fff" stroke="#ece7e7"/><text x="${x + 14}" y="${y + 24}" font-size="13" font-weight="600" fill="#242424">${title}</text><text x="${x + 14}" y="${y + 48}" font-size="11" fill="#8a8585">${body}</text></g>`;
+      return `<g><rect x="${x}" y="${y}" width="${node.position.width}" height="${node.position.height}" rx="8" fill="#fffefd" stroke="#e7e1d8"/><text x="${x + 14}" y="${y + 24}" font-size="13" font-weight="600" fill="#232323">${title}</text><text x="${x + 14}" y="${y + 48}" font-size="11" fill="#817b73">${body}</text></g>`;
     })
     .join("");
   const edges = page.edges
@@ -82,10 +82,10 @@ function workspaceToSvg(workspace: Workspace): string {
       const y1 = source.position.y + source.position.height / 2 + offsetY;
       const x2 = target.position.x + offsetX;
       const y2 = target.position.y + target.position.height / 2 + offsetY;
-      return `<path d="M ${x1} ${y1} C ${(x1 + x2) / 2} ${y1}, ${(x1 + x2) / 2} ${y2}, ${x2} ${y2}" fill="none" stroke="#d9c7bf" stroke-width="1.5"/>`;
+      return `<path d="M ${x1} ${y1} C ${(x1 + x2) / 2} ${y1}, ${(x1 + x2) / 2} ${y2}, ${x2} ${y2}" fill="none" stroke="#cdbcb0" stroke-width="1.5"/>`;
     })
     .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#fdfcfc"/>${edges}${nodes}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#faf9f7"/>${edges}${nodes}</svg>`;
 }
 
 function getWorkspaceBounds(workspace: Workspace) {

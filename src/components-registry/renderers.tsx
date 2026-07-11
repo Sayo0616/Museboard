@@ -290,22 +290,22 @@ export function ChartRenderer({ node }: ComponentRendererProps) {
           <PieChart data={data} labels={labels} width={width} height={height} />
         ) : chartType === "scatter" ? (
           <>
-            <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="#ece7e7" />
+            <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="var(--border)" />
             <ScatterChart data={data} width={width} height={height} max={max} />
           </>
         ) : chartType === "line" ? (
           <>
-            <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="#ece7e7" />
-            <polyline points={points} fill="none" stroke="#e76f3c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="var(--border)" />
+            <polyline points={points} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             {data.map((value, index) => {
               const x = 16 + (index * (width - 32)) / Math.max(data.length - 1, 1);
               const y = height - 16 - (value / max) * (height - 36);
-              return <circle key={`${value}-${index}`} cx={x} cy={y} r="3" fill="#e76f3c" opacity="0.72" />;
+              return <circle key={`${value}-${index}`} cx={x} cy={y} r="3" fill="var(--accent)" opacity="0.72" />;
             })}
           </>
         ) : (
           <>
-            <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="#ece7e7" />
+            <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="var(--border)" />
             {data.map((value, index) => {
               const barWidth = (width - 48) / Math.max(data.length, 1);
               const barHeight = (value / max) * (height - 42);
@@ -317,7 +317,7 @@ export function ChartRenderer({ node }: ComponentRendererProps) {
                   width={Math.max(10, barWidth - 10)}
                   height={barHeight}
                   rx="5"
-                  fill="#e76f3c"
+                  fill="var(--accent)"
                   opacity="0.58"
                 />
               );
@@ -341,7 +341,7 @@ function PieChart({ data, labels, width, height }: { data: number[]; labels: str
   const radius = Math.max(38, Math.min(width, height) / 2 - 26);
   const cx = width / 2;
   const cy = height / 2;
-  const colors = ["#e76f3c", "#f3b69b", "#f7d4c5", "#d88766", "#f0a37f", "#c96f54"];
+  const colors = ["var(--accent)", "#e7a086", "#f2cab9", "#c98265", "#d9a082", "var(--accent-strong)"];
   let angle = -90;
 
   return (
@@ -376,7 +376,7 @@ function ScatterChart({ data, width, height, max }: { data: number[]; width: num
       {data.map((value, index) => {
         const x = 20 + (index * (width - 44)) / Math.max(data.length - 1, 1);
         const y = height - 18 - (value / max) * (height - 44);
-        return <circle key={`${value}-${index}`} cx={x} cy={y} r="5" fill="#e76f3c" opacity="0.58" />;
+        return <circle key={`${value}-${index}`} cx={x} cy={y} r="5" fill="var(--accent)" opacity="0.58" />;
       })}
     </>
   );
