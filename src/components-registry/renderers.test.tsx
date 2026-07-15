@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { SliderRenderer, TableRenderer, TextRenderer, MermaidRenderer } from "./renderers";
+import { CardRenderer, ChartRenderer, SliderRenderer, TableRenderer, TextRenderer, MermaidRenderer } from "./renderers";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
 import type { CanvasNode, CanvasNodeType, Workspace } from "../workspace/workspaceTypes";
 
@@ -322,9 +322,13 @@ describe("MermaidRenderer", () => {
 
     render(<MermaidRenderer node={node} />);
 
-    fireEvent.change(screen.getByDisplayValue("Pipeline"), { target: { value: "Release flow" } });
+    const title = screen.getByDisplayValue("Pipeline");
+    fireEvent.focus(title);
+    fireEvent.change(title, { target: { value: "Release flow" } });
+    fireEvent.blur(title);
 
     expect(storedNode<{ title: string }>(node.id).props.title).toBe("Release flow");
+    expect(useWorkspaceStore.getState().past).toHaveLength(1);
   });
 
   it("shows a syntax error without clearing the node source", async () => {
@@ -341,6 +345,54 @@ describe("MermaidRenderer", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Parse failed");
     expect(storedNode<{ source: string }>(node.id).props.source).toBe("not a diagram");
+  });
+});
+
+describe("inline edit transactions", () => {
+  it("batches repeated chart title changes into one undo and version snapshot", () => {
+    const node = createNode("chart", {
+      title: "Original title",
+      chartType: "bar",
+      data: [1, 2],
+      labels: ["A", "B"],
+    });
+    seedWorkspace(node);
+
+    const { rerender } = render(<ChartRenderer node={node} />);
+    const title = screen.getByDisplayValue("Original title");
+    fireEvent.focus(title);
+    fireEvent.change(title, { target: { value: "Draft" } });
+    rerender(<ChartRenderer node={storedNode(node.id)} />);
+    fireEvent.change(screen.getByDisplayValue("Draft"), { target: { value: "Final title" } });
+    rerender(<ChartRenderer node={storedNode(node.id)} />);
+    fireEvent.blur(screen.getByDisplayValue("Final title"));
+
+    expect(storedNode<{ title: string }>(node.id).props.title).toBe("Final title");
+    expect(useWorkspaceStore.getState().past).toHaveLength(1);
+    expect(useWorkspaceStore.getState().versionHistory).toHaveLength(1);
+
+    act(() => useWorkspaceStore.getState().undo());
+    expect(storedNode<{ title: string }>(node.id).props.title).toBe("Original title");
+  });
+
+  it("cancels card edits with Escape without adding history", () => {
+    const node = createNode("card", {
+      title: "Revenue",
+      value: "$10k",
+      detail: "Monthly",
+    });
+    seedWorkspace(node);
+
+    const { rerender } = render(<CardRenderer node={node} />);
+    const value = screen.getByDisplayValue("$10k");
+    fireEvent.focus(value);
+    fireEvent.change(value, { target: { value: "$12k" } });
+    rerender(<CardRenderer node={storedNode(node.id)} />);
+    fireEvent.keyDown(screen.getByDisplayValue("$12k"), { key: "Escape" });
+
+    expect(storedNode<{ value: string }>(node.id).props.value).toBe("$10k");
+    expect(useWorkspaceStore.getState().past).toHaveLength(0);
+    expect(useWorkspaceStore.getState().versionHistory).toHaveLength(0);
   });
 });
 
@@ -510,6 +562,12 @@ describe("TableRenderer", () => {
 
     fireEvent.change(continuedCell, { target: { value: "AB" } });
     expect(storedNode<{ rows: string[][] }>(node.id).props.rows[0][0]).toBe("AB");
+
+    fireEvent.blur(continuedCell);
+    expect(useWorkspaceStore.getState().past).toHaveLength(1);
+
+    act(() => useWorkspaceStore.getState().undo());
+    expect(storedNode<{ rows: string[][] }>(node.id).props.rows[0][0]).toBe("Brief");
   });
 
   it("inserts rows and columns through the table context menu", () => {

@@ -1,5 +1,13 @@
 import { Check, GripHorizontal, GripVertical, MousePointerClick } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent,
+} from "react";
 import type { CanvasNode } from "../workspace/workspaceTypes";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
 import { composeMarkdownSource, renderMarkdown, splitMarkdownSource } from "./markdown";
@@ -7,6 +15,49 @@ import { composeMarkdownSource, renderMarkdown, splitMarkdownSource } from "./ma
 export type ComponentRendererProps = {
   node: CanvasNode;
 };
+
+type InlineEditTarget = HTMLInputElement | HTMLTextAreaElement;
+
+function useNodeEditTransaction(nodeId: string) {
+  const beginUserEdit = useWorkspaceStore((state) => state.beginUserEdit);
+  const previewUserEdit = useWorkspaceStore((state) => state.previewUserEdit);
+  const commitUserEdit = useWorkspaceStore((state) => state.commitUserEdit);
+  const cancelUserEdit = useWorkspaceStore((state) => state.cancelUserEdit);
+
+  const previewPatch = (patch: Record<string, unknown>, eventLabel: string) => {
+    beginUserEdit(eventLabel);
+    previewUserEdit(
+      {
+        message: "本地更新",
+        operations: [{ type: "update_node", nodeId, patch }],
+      },
+      eventLabel,
+    );
+  };
+
+  const finishOnKeyDown = (event: ReactKeyboardEvent<InlineEditTarget>, eventLabel: string, multiline = false) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelUserEdit();
+      event.currentTarget.blur();
+      return;
+    }
+
+    const shouldCommit = event.key === "Enter" && (!multiline || event.metaKey || event.ctrlKey);
+    if (shouldCommit) {
+      event.preventDefault();
+      commitUserEdit(eventLabel);
+      event.currentTarget.blur();
+    }
+  };
+
+  return {
+    beginUserEdit,
+    previewPatch,
+    commitUserEdit,
+    finishOnKeyDown,
+  };
+}
 
 type TableCellRef = {
   row: number;
@@ -261,7 +312,7 @@ function getSliderRangeError(min: number, max: number, step: number, value: numb
 }
 
 export function ChartRenderer({ node }: ComponentRendererProps) {
-  const updateNode = useWorkspaceStore((state) => state.updateNode);
+  const edit = useNodeEditTransaction(node.id);
   const mode = useWorkspaceStore((state) => state.mode);
   const data = Array.isArray(node.props.data) ? (node.props.data as number[]) : [];
   const labels = Array.isArray(node.props.labels) ? (node.props.labels as string[]) : [];
@@ -276,6 +327,7 @@ export function ChartRenderer({ node }: ComponentRendererProps) {
       return `${x},${y}`;
     })
     .join(" ");
+  const titleEditLabel = `${node.name} 标题已更新`;
 
   return (
     <div className="chart-node-content">
@@ -283,7 +335,10 @@ export function ChartRenderer({ node }: ComponentRendererProps) {
         className="chart-title inline-node-input"
         value={String(node.props.title ?? node.name)}
         disabled={mode === "run"}
-        onChange={(event) => updateNode(node.id, { "props.title": event.target.value }, `${node.name} 标题已更新`)}
+        onFocus={() => edit.beginUserEdit(titleEditLabel)}
+        onChange={(event) => edit.previewPatch({ "props.title": event.target.value }, titleEditLabel)}
+        onBlur={() => edit.commitUserEdit(titleEditLabel)}
+        onKeyDown={(event) => edit.finishOnKeyDown(event, titleEditLabel)}
       />
       <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg" aria-label={node.name}>
         {chartType === "pie" ? (
@@ -398,10 +453,11 @@ function polarToCartesian(cx: number, cy: number, radius: number, angleInDegrees
 }
 
 export function MermaidRenderer({ node }: ComponentRendererProps) {
-  const updateNode = useWorkspaceStore((state) => state.updateNode);
+  const edit = useNodeEditTransaction(node.id);
   const mode = useWorkspaceStore((state) => state.mode);
   const source = typeof node.props.source === "string" ? node.props.source : "";
   const theme = node.props.theme === "default" ? "default" : "neutral";
+  const titleEditLabel = `${node.name} 标题已更新`;
   const [rendered, setRendered] = useState<{ svg: string; error: string | null; status: "idle" | "rendering" | "ready" | "error" }>({
     svg: "",
     error: null,
@@ -453,7 +509,10 @@ export function MermaidRenderer({ node }: ComponentRendererProps) {
         className="chart-title inline-node-input"
         value={String(node.props.title ?? node.name)}
         disabled={mode === "run"}
-        onChange={(event) => updateNode(node.id, { "props.title": event.target.value }, `${node.name} 标题已更新`)}
+        onFocus={() => edit.beginUserEdit(titleEditLabel)}
+        onChange={(event) => edit.previewPatch({ "props.title": event.target.value }, titleEditLabel)}
+        onBlur={() => edit.commitUserEdit(titleEditLabel)}
+        onKeyDown={(event) => edit.finishOnKeyDown(event, titleEditLabel)}
       />
       <div className="mermaid-diagram" aria-busy={rendered.status === "rendering"}>
         {rendered.status === "ready" ? <div className="mermaid-svg" dangerouslySetInnerHTML={{ __html: rendered.svg }} /> : null}
@@ -476,6 +535,7 @@ function formatMermaidError(error: unknown): string {
 
 export function TableRenderer({ node }: ComponentRendererProps) {
   const updateNode = useWorkspaceStore((state) => state.updateNode);
+  const edit = useNodeEditTransaction(node.id);
   const mode = useWorkspaceStore((state) => state.mode);
   const disabled = mode === "run";
   const columns = normalizeTableColumns(node.props.columns, node.props.rows);
@@ -577,16 +637,16 @@ export function TableRenderer({ node }: ComponentRendererProps) {
     );
   };
 
-  const updateCell = (rowIndex: number, columnIndex: number, value: string) => {
+  const updateCell = (rowIndex: number, columnIndex: number, value: string, eventLabel: string) => {
     const nextRows = rows.map((row) => [...row]);
     nextRows[rowIndex][columnIndex] = value;
-    patchTable({ "props.rows": nextRows }, "表格内容已更新");
+    edit.previewPatch({ "props.rows": nextRows }, eventLabel);
   };
 
-  const updateColumn = (columnIndex: number, value: string) => {
+  const updateColumn = (columnIndex: number, value: string, eventLabel: string) => {
     const nextColumns = [...columns];
     nextColumns[columnIndex] = value;
-    patchTable({ "props.columns": nextColumns }, "表头已更新");
+    edit.previewPatch({ "props.columns": nextColumns }, eventLabel);
   };
 
   const insertRowAt = (insertAt: number) => {
@@ -785,40 +845,48 @@ export function TableRenderer({ node }: ComponentRendererProps) {
               <th className="table-corner-cell">
                 <span className="table-selection-label">{formatTableSelectionLabel(selection)}</span>
               </th>
-              {columns.map((column, columnIndex) => (
-                <th
-                  key={`column-${columnIndex}`}
-                  className={`${selectedColumnSet.has(columnIndex) ? "selected-column" : ""} ${
-                    hoveredColumn === columnIndex ? "hovered-column" : ""
-                  }`}
-                  data-table-column-index={columnIndex}
-                  onMouseEnter={() => setHoveredColumn(columnIndex)}
-                  onMouseLeave={() => setHoveredColumn((current) => (current === columnIndex ? null : current))}
-                >
-                  <button
-                    className="table-column-handle"
-                    type="button"
-                    aria-label={`选择第 ${columnIndex + 1} 列`}
-                    disabled={disabled}
-                    onPointerDown={(event) => startHandleDrag("column", columnIndex, event)}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      selectColumn(columnIndex);
-                      setMenu({ type: "column", column: columnIndex, ...getMenuPoint(event) });
-                    }}
+              {columns.map((column, columnIndex) => {
+                const eventLabel = `${node.name} 表头已更新`;
+                return (
+                  <th
+                    key={`column-${columnIndex}`}
+                    className={`${selectedColumnSet.has(columnIndex) ? "selected-column" : ""} ${
+                      hoveredColumn === columnIndex ? "hovered-column" : ""
+                    }`}
+                    data-table-column-index={columnIndex}
+                    onMouseEnter={() => setHoveredColumn(columnIndex)}
+                    onMouseLeave={() => setHoveredColumn((current) => (current === columnIndex ? null : current))}
                   >
-                    <GripHorizontal size={13} />
-                  </button>
-                  <input
-                    aria-label={`编辑第 ${columnIndex + 1} 列表头`}
-                    value={column}
-                    disabled={disabled}
-                    onFocus={() => selectCell({ row: selectedRow, column: columnIndex }, false)}
-                    onChange={(event) => updateColumn(columnIndex, event.target.value)}
-                  />
-                </th>
-              ))}
+                    <button
+                      className="table-column-handle"
+                      type="button"
+                      aria-label={`选择第 ${columnIndex + 1} 列`}
+                      disabled={disabled}
+                      onPointerDown={(event) => startHandleDrag("column", columnIndex, event)}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        selectColumn(columnIndex);
+                        setMenu({ type: "column", column: columnIndex, ...getMenuPoint(event) });
+                      }}
+                    >
+                      <GripHorizontal size={13} />
+                    </button>
+                    <input
+                      aria-label={`编辑第 ${columnIndex + 1} 列表头`}
+                      value={column}
+                      disabled={disabled}
+                      onFocus={() => {
+                        selectCell({ row: selectedRow, column: columnIndex }, false);
+                        edit.beginUserEdit(eventLabel);
+                      }}
+                      onChange={(event) => updateColumn(columnIndex, event.target.value, eventLabel)}
+                      onBlur={() => edit.commitUserEdit(eventLabel)}
+                      onKeyDown={(event) => edit.finishOnKeyDown(event, eventLabel)}
+                    />
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -851,6 +919,7 @@ export function TableRenderer({ node }: ComponentRendererProps) {
                   if (isCellCoveredByMerge(merges, rowIndex, columnIndex)) return null;
                   const merge = getMergeAnchor(merges, rowIndex, columnIndex);
                   const isSelected = selectedBounds ? isCellWithinBounds(rowIndex, columnIndex, selectedBounds) : false;
+                  const eventLabel = `${node.name} 表格内容已更新`;
                   return (
                     <td
                       key={`${rowIndex}-${columnIndex}`}
@@ -878,11 +947,14 @@ export function TableRenderer({ node }: ComponentRendererProps) {
                         onFocus={() => {
                           if (skipCellFocusRef.current) {
                             skipCellFocusRef.current = false;
-                            return;
+                          } else {
+                            selectCell({ row: rowIndex, column: columnIndex }, false);
                           }
-                          selectCell({ row: rowIndex, column: columnIndex }, false);
+                          edit.beginUserEdit(eventLabel);
                         }}
-                        onChange={(event) => updateCell(rowIndex, columnIndex, event.target.value)}
+                        onChange={(event) => updateCell(rowIndex, columnIndex, event.target.value, eventLabel)}
+                        onBlur={() => edit.commitUserEdit(eventLabel)}
+                        onKeyDown={(event) => edit.finishOnKeyDown(event, eventLabel)}
                       />
                     </td>
                   );
@@ -1209,9 +1281,12 @@ export function ButtonRenderer({ node }: ComponentRendererProps) {
 }
 
 export function CardRenderer({ node }: ComponentRendererProps) {
-  const updateNode = useWorkspaceStore((state) => state.updateNode);
+  const edit = useNodeEditTransaction(node.id);
   const mode = useWorkspaceStore((state) => state.mode);
   const disabled = mode === "run";
+  const titleEditLabel = `${node.name} 标题已更新`;
+  const valueEditLabel = `${node.name} 数值已更新`;
+  const detailEditLabel = `${node.name} 说明已更新`;
 
   return (
     <div className="metric-card">
@@ -1219,19 +1294,28 @@ export function CardRenderer({ node }: ComponentRendererProps) {
         <input
           value={String(node.props.title ?? node.name)}
           disabled={disabled}
-          onChange={(event) => updateNode(node.id, { "props.title": event.target.value }, `${node.name} 标题已更新`)}
+          onFocus={() => edit.beginUserEdit(titleEditLabel)}
+          onChange={(event) => edit.previewPatch({ "props.title": event.target.value }, titleEditLabel)}
+          onBlur={() => edit.commitUserEdit(titleEditLabel)}
+          onKeyDown={(event) => edit.finishOnKeyDown(event, titleEditLabel)}
         />
         <input
           className="metric-value-input"
           value={String(node.props.value ?? "")}
           disabled={disabled}
-          onChange={(event) => updateNode(node.id, { "props.value": event.target.value }, `${node.name} 数值已更新`)}
+          onFocus={() => edit.beginUserEdit(valueEditLabel)}
+          onChange={(event) => edit.previewPatch({ "props.value": event.target.value }, valueEditLabel)}
+          onBlur={() => edit.commitUserEdit(valueEditLabel)}
+          onKeyDown={(event) => edit.finishOnKeyDown(event, valueEditLabel)}
         />
       </div>
       <textarea
         value={String(node.props.detail ?? "")}
         disabled={disabled}
-        onChange={(event) => updateNode(node.id, { "props.detail": event.target.value }, `${node.name} 说明已更新`)}
+        onFocus={() => edit.beginUserEdit(detailEditLabel)}
+        onChange={(event) => edit.previewPatch({ "props.detail": event.target.value }, detailEditLabel)}
+        onBlur={() => edit.commitUserEdit(detailEditLabel)}
+        onKeyDown={(event) => edit.finishOnKeyDown(event, detailEditLabel, true)}
       />
       <div className="metric-foot">
         <Check size={14} />
