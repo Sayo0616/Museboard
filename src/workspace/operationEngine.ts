@@ -20,6 +20,8 @@ export function isDestructiveOperation(operation: WorkspaceOperation): boolean {
 }
 
 export function applyOperations(workspace: Workspace, operations: WorkspaceOperation[], actor: OperationActor = "agent"): Workspace {
+  if (operations.length === 0) return workspace;
+
   let next = structuredClone(workspace);
 
   operations.forEach((operation) => {
@@ -43,8 +45,8 @@ function applyOperation(workspace: Workspace, operation: WorkspaceOperation, act
 
   switch (operation.type) {
     case "create_node": {
-      if (page.nodes.some((item) => item.id === operation.node.id)) {
-        throw new Error(`Node id already exists on the active page: ${operation.node.id}`);
+      if (workspace.pages.some((item) => item.nodes.some((node) => node.id === operation.node.id))) {
+        throw new Error(`Node id already exists: ${operation.node.id}`);
       }
       const node = validateComponentProps(withMetadata(operation.node));
       return withPage({
@@ -52,8 +54,10 @@ function applyOperation(workspace: Workspace, operation: WorkspaceOperation, act
         nodes: [...page.nodes, node],
       });
     }
-    case "update_node":
+    case "update_node": {
       assertPatchCanBeApplied(operation.patch, actor);
+      const target = requireNode(page.nodes, operation.nodeId);
+      assertCanEdit(target, actor);
       return withPage({
         ...page,
         nodes: page.nodes.map((node) => {
@@ -65,16 +69,19 @@ function applyOperation(workspace: Workspace, operation: WorkspaceOperation, act
           return validateComponentProps(patched);
         }),
       });
+    }
     case "delete_node": {
-      const target = page.nodes.find((node) => node.id === operation.nodeId);
-      if (target) assertCanDelete(target, actor);
+      const target = requireNode(page.nodes, operation.nodeId);
+      assertCanDelete(target, actor);
       return withPage({
         ...page,
         nodes: page.nodes.filter((node) => node.id !== operation.nodeId),
         edges: page.edges.filter((edge) => edge.sourceNodeId !== operation.nodeId && edge.targetNodeId !== operation.nodeId),
       });
     }
-    case "move_node":
+    case "move_node": {
+      const target = requireNode(page.nodes, operation.nodeId);
+      assertCanEdit(target, actor);
       return withPage({
         ...page,
         nodes: page.nodes.map((node) => {
@@ -83,11 +90,23 @@ function applyOperation(workspace: Workspace, operation: WorkspaceOperation, act
           return markUpdated({ ...node, position: { ...node.position, ...operation.position } }, actor);
         }),
       });
-    case "create_edge":
-      return withPage({ ...page, edges: [...page.edges.filter((edge) => edge.id !== operation.edge.id), operation.edge] });
-    case "delete_edge":
+    }
+    case "create_edge": {
+      if (workspace.pages.some((item) => item.edges.some((edge) => edge.id === operation.edge.id))) {
+        throw new Error(`Edge id already exists: ${operation.edge.id}`);
+      }
+      requireNode(page.nodes, operation.edge.sourceNodeId);
+      requireNode(page.nodes, operation.edge.targetNodeId);
+      return withPage({ ...page, edges: [...page.edges, operation.edge] });
+    }
+    case "delete_edge": {
+      if (!page.edges.some((edge) => edge.id === operation.edgeId)) {
+        throw new Error(`Edge does not exist on the active page: ${operation.edgeId}`);
+      }
       return withPage({ ...page, edges: page.edges.filter((edge) => edge.id !== operation.edgeId) });
-    case "group_nodes":
+    }
+    case "group_nodes": {
+      [...new Set(operation.nodeIds)].forEach((nodeId) => requireNode(page.nodes, nodeId));
       return withPage({
         ...page,
         nodes: page.nodes.map((node) => {
@@ -96,16 +115,26 @@ function applyOperation(workspace: Workspace, operation: WorkspaceOperation, act
           return markUpdated({ ...node, state: { ...node.state, groupName: operation.name } }, actor);
         }),
       });
+    }
     case "set_variable":
       return {
         ...workspace,
         variables: { ...workspace.variables, [operation.key]: operation.variable },
       };
-    case "focus_node":
-      return workspace;
     default:
       return workspace;
   }
+}
+
+function requireNode(nodes: CanvasNode[], nodeId: string): CanvasNode {
+  const node = nodes.find((item) => item.id === nodeId);
+  if (!node) throw new Error(`Node does not exist on the active page: ${nodeId}`);
+  return node;
+}
+
+export function validateWorkspaceComponentProps(workspace: Workspace): Workspace {
+  workspace.pages.forEach((page) => page.nodes.forEach((node) => validateComponentProps(node)));
+  return workspace;
 }
 
 function assertPatchCanBeApplied(patch: Record<string, unknown>, actor: OperationActor): void {

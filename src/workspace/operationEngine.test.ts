@@ -13,7 +13,7 @@ describe("operation engine boundaries", () => {
 
     expect(() =>
       applyOperations(workspace, [{ type: "create_node", node: { ...structuredClone(existing), name: "Replacement" } }]),
-    ).toThrow(`Node id already exists on the active page: ${existing.id}`);
+    ).toThrow(`Node id already exists: ${existing.id}`);
     expect(workspace.pages[0].nodes[0].name).toBe(existing.name);
   });
 
@@ -87,5 +87,38 @@ describe("operation engine boundaries", () => {
     ]);
 
     expect(updated.pages[0].nodes.find((node) => node.id === "note_goal")?.props.title).toBe("Agent result");
+  });
+
+  it("rejects operations whose target node does not exist", () => {
+    expect(() =>
+      applyOperations(workspaceFixture(), [{ type: "move_node", nodeId: "missing_node", position: { x: 10 } }]),
+    ).toThrow(/Node does not exist/);
+  });
+
+  it("rejects edges with missing endpoints and duplicate edge ids", () => {
+    expect(() =>
+      applyOperations(workspaceFixture(), [
+        {
+          type: "create_edge",
+          edge: { id: "edge_new", sourceNodeId: "note_goal", targetNodeId: "missing_node", type: "dependency" },
+        },
+      ]),
+    ).toThrow(/Node does not exist/);
+
+    expect(() =>
+      applyOperations(workspaceFixture(), [
+        {
+          type: "create_edge",
+          edge: { id: "edge_slider_metric", sourceNodeId: "note_goal", targetNodeId: "slider_budget", type: "dependency" },
+        },
+      ]),
+    ).toThrow(/Edge id already exists/);
+  });
+
+  it("does not create a version for an empty operation list", () => {
+    const workspace = workspaceFixture();
+
+    expect(applyOperations(workspace, [])).toBe(workspace);
+    expect(workspace.version).toBe(initialWorkspace.version);
   });
 });

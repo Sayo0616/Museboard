@@ -44,11 +44,6 @@ export type SetVariableOperation = {
   variable: WorkspaceVariable;
 };
 
-export type FocusNodeOperation = {
-  type: "focus_node";
-  nodeId: string;
-};
-
 export type WorkspaceOperation =
   | CreateNodeOperation
   | UpdateNodeOperation
@@ -57,8 +52,7 @@ export type WorkspaceOperation =
   | CreateEdgeOperation
   | DeleteEdgeOperation
   | GroupNodesOperation
-  | SetVariableOperation
-  | FocusNodeOperation;
+  | SetVariableOperation;
 
 export type AgentResponse = {
   message: string;

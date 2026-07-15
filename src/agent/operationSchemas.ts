@@ -116,15 +116,11 @@ const groupNodesOperationSchema = z.object({
 const setVariableOperationSchema = z.object({
   type: z.literal("set_variable"),
   key: z.string().min(1),
-  variable: z.object({
-    type: z.enum(["number", "string", "boolean"]),
-    value: z.union([z.number(), z.string(), z.boolean()]),
-  }),
-});
-
-const focusNodeOperationSchema = z.object({
-  type: z.literal("focus_node"),
-  nodeId: z.string().min(1),
+  variable: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("number"), value: z.number() }),
+    z.object({ type: z.literal("string"), value: z.string() }),
+    z.object({ type: z.literal("boolean"), value: z.boolean() }),
+  ]),
 });
 
 export const workspaceOperationSchema = z.discriminatedUnion("type", [
@@ -136,7 +132,6 @@ export const workspaceOperationSchema = z.discriminatedUnion("type", [
   deleteEdgeOperationSchema,
   groupNodesOperationSchema,
   setVariableOperationSchema,
-  focusNodeOperationSchema,
 ]);
 
 export const agentResponseSchema = z.object({

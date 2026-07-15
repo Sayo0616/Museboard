@@ -2,13 +2,14 @@ import { create } from "zustand";
 import type { AgentResponse } from "../agent/agentProtocol";
 import { runAgent } from "../agent/agentClient";
 import { buildWorkspaceContext, buildWorkspaceSummary } from "./contextBuilder";
-import { applyOperations, isDestructiveOperation, validateAgentResponse } from "./operationEngine";
+import { applyOperations, isDestructiveOperation, validateAgentResponse, validateWorkspaceComponentProps } from "./operationEngine";
 import { downloadWorkspaceJson, downloadWorkspacePdf, downloadWorkspacePng } from "./workspaceExport";
 import { initialWorkspace } from "./initialWorkspace";
 import { getActivePage, getActivePageIndex } from "./workspaceSelectors";
 import type { AgentPermissionLevel, AgentTransport, ChatMessage, CanvasNode, Page, VersionSnapshot, Workspace, WorkspaceMode } from "./workspaceTypes";
 import { createId, nowIso } from "../utils/id";
 import { getAtPath } from "../utils/patch";
+import { validateWorkspace } from "./workspaceSchema";
 
 const storageKey = "museboard.workspace";
 
@@ -681,26 +682,32 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   loadWorkspace: () => {
     const raw = localStorage.getItem(storageKey);
     if (!raw) return;
-    const loaded = migrateLegacyWorkspace(JSON.parse(raw) as Workspace);
-    const workspace = {
-      ...loaded,
-      activePageId: loaded.activePageId ?? loaded.pages[0]?.id ?? "page_main",
-    };
-    set((state) => ({
-      workspace,
-      past: [...state.past, state.workspace],
-      future: [],
-      versionHistory: pushVersionSnapshot(state.versionHistory, workspace, "加载 workspace", state.workspace),
-      pendingResponse: null,
-      lastAppliedResponse: null,
-      userEditBase: null,
-      userEditLabel: null,
-      saveState: "saved",
-      selectedNodeIds: [],
-      selectedEdgeIds: [],
-      activeNodeId: null,
-      activeEdgeId: null,
-    }));
+    try {
+      const workspace = validateWorkspaceComponentProps(validateWorkspace(migrateLegacyWorkspace(JSON.parse(raw) as unknown)));
+      set((state) => ({
+        workspace,
+        past: [...state.past, state.workspace],
+        future: [],
+        versionHistory: pushVersionSnapshot(state.versionHistory, workspace, "加载 workspace", state.workspace),
+        pendingResponse: null,
+        lastAppliedResponse: null,
+        userEditBase: null,
+        userEditLabel: null,
+        saveState: "saved",
+        selectedNodeIds: [],
+        selectedEdgeIds: [],
+        activeNodeId: null,
+        activeEdgeId: null,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      set((state) => ({
+        messages: [
+          ...state.messages,
+          { id: createId("message_load_error"), role: "system", text: `Workspace 加载失败：${message}`, createdAt: nowIso() },
+        ],
+      }));
+    }
   },
 }));
 
@@ -818,20 +825,31 @@ function createVersionSnapshot(workspace: Workspace, label: string, previousWork
   };
 }
 
-function migrateLegacyWorkspace(workspace: Workspace): Workspace {
+function migrateLegacyWorkspace(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const workspace = value as Record<string, unknown>;
+  if (!Array.isArray(workspace.pages)) return value;
+
+  const pages = workspace.pages.map((pageValue) => {
+    if (!pageValue || typeof pageValue !== "object" || Array.isArray(pageValue)) return pageValue;
+    const page = pageValue as Record<string, unknown>;
+    if (!Array.isArray(page.nodes)) return pageValue;
+    const nodes = page.nodes.map((nodeValue) => {
+      if (!nodeValue || typeof nodeValue !== "object" || Array.isArray(nodeValue)) return nodeValue;
+      const node = nodeValue as Record<string, unknown>;
+      if (node.type !== "flowchart") return nodeValue;
+      const props = node.props && typeof node.props === "object" && !Array.isArray(node.props) ? (node.props as Record<string, unknown>) : {};
+      return { ...node, type: "mermaid", props: migrateFlowchartProps(props) };
+    });
+    return { ...page, nodes };
+  });
+  const firstPage = pages[0];
+  const firstPageId = firstPage && typeof firstPage === "object" && !Array.isArray(firstPage) ? (firstPage as Record<string, unknown>).id : undefined;
+
   return {
     ...workspace,
-    pages: workspace.pages.map((page) => ({
-      ...page,
-      nodes: page.nodes.map((node) => {
-        if ((node.type as string) !== "flowchart") return node;
-        return {
-          ...node,
-          type: "mermaid",
-          props: migrateFlowchartProps(node.props),
-        };
-      }),
-    })),
+    pages,
+    activePageId: workspace.activePageId ?? firstPageId ?? "page_main",
   };
 }
 
