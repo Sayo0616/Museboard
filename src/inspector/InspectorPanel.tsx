@@ -5,7 +5,7 @@ import { componentRegistry } from "../components-registry/registry";
 import { composeMarkdownSource, splitMarkdownSource } from "../components-registry/markdown";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
 import { getActivePage } from "../workspace/workspaceSelectors";
-import type { CanvasNode } from "../workspace/workspaceTypes";
+import type { CanvasEdge, CanvasNode, EdgeArrowStyle, EdgeLineStyle } from "../workspace/workspaceTypes";
 import type { AgentResponse } from "../agent/agentProtocol";
 import { getAtPath } from "../utils/patch";
 
@@ -18,6 +18,7 @@ export function InspectorPanel() {
   const commitUserEdit = useWorkspaceStore((state) => state.commitUserEdit);
   const cancelUserEdit = useWorkspaceStore((state) => state.cancelUserEdit);
   const updateNode = useWorkspaceStore((state) => state.updateNode);
+  const updateEdge = useWorkspaceStore((state) => state.updateEdge);
   const deleteEdgesForSelection = useWorkspaceStore((state) => state.deleteEdgesForSelection);
   const activePage = getActivePage(workspace);
   const selectedNode = activePage.nodes.find((node) => node.id === activeNodeId);
@@ -28,37 +29,13 @@ export function InspectorPanel() {
     const target = activePage.nodes.find((node) => node.id === selectedEdge.targetNodeId);
 
     return (
-      <section className="inspector-panel">
-        <div className="panel-title">
-          <SlidersHorizontal size={15} />
-          <span>连接</span>
-        </div>
-
-        <div className="selected-summary">
-          <strong>{selectedEdge.label ?? selectedEdge.id}</strong>
-          <span>{selectedEdge.type}</span>
-        </div>
-
-        <div className="edge-inspector">
-          <dl>
-            <div>
-              <dt>起点</dt>
-              <dd>{source?.name ?? selectedEdge.sourceNodeId}</dd>
-            </div>
-            <div>
-              <dt>终点</dt>
-              <dd>{target?.name ?? selectedEdge.targetNodeId}</dd>
-            </div>
-            <div>
-              <dt>ID</dt>
-              <dd>{selectedEdge.id}</dd>
-            </div>
-          </dl>
-          <button className="permission-toggle" type="button" onClick={deleteEdgesForSelection}>
-            删除连接
-          </button>
-        </div>
-      </section>
+      <EdgeInspector
+        edge={selectedEdge}
+        sourceName={source?.name ?? selectedEdge.sourceNodeId}
+        targetName={target?.name ?? selectedEdge.targetNodeId}
+        onUpdate={updateEdge}
+        onDelete={deleteEdgesForSelection}
+      />
     );
   }
 
@@ -259,6 +236,153 @@ type TextNodeInspectorProps = {
     onCancel: () => void;
   };
 };
+
+type EdgeInspectorProps = {
+  edge: CanvasEdge;
+  sourceName: string;
+  targetName: string;
+  onUpdate: (edgeId: string, patch: Partial<CanvasEdge>, eventLabel?: string) => void;
+  onDelete: () => void;
+};
+
+function EdgeInspector({ edge, sourceName, targetName, onUpdate, onDelete }: EdgeInspectorProps) {
+  const edgeName = edge.label || "未命名连接";
+
+  const update = (patch: Partial<CanvasEdge>, label: string) => {
+    onUpdate(edge.id, patch, `${edgeName} ${label}`);
+  };
+
+  return (
+    <section className="inspector-panel">
+      <div className="panel-title">
+        <SlidersHorizontal size={15} />
+        <span>连接</span>
+      </div>
+
+      <div className="selected-summary">
+        <strong>{edgeName}</strong>
+        <span>{edge.type}</span>
+      </div>
+
+      <div className="edge-inspector">
+        <dl>
+          <div>
+            <dt>起点</dt>
+            <dd>{sourceName} · {edge.sourceHandle ?? "right"}</dd>
+          </div>
+          <div>
+            <dt>终点</dt>
+            <dd>{targetName} · {edge.targetHandle ?? "left"}</dd>
+          </div>
+          <div>
+            <dt>ID</dt>
+            <dd>{edge.id}</dd>
+          </div>
+        </dl>
+
+        <PropertyField
+          label="文本"
+          value={edge.label ?? ""}
+          onEditStart={() => undefined}
+          onPreview={() => undefined}
+          onCommit={(value) => update({ label: String(value) }, "文本已更新")}
+        />
+
+        <div className="property-grid">
+          <PropertyField
+            label="粗细"
+            type="number"
+            min={1}
+            max={12}
+            value={edge.strokeWidth ?? 1.5}
+            onEditStart={() => undefined}
+            onPreview={() => undefined}
+            onCommit={(value) => update({ strokeWidth: Number(value) }, "粗细已更新")}
+          />
+          <PropertyField
+            label="颜色"
+            value={edge.strokeColor ?? "#cdbcb0"}
+            onEditStart={() => undefined}
+            onPreview={() => undefined}
+            onCommit={(value) => update({ strokeColor: String(value) }, "颜色已更新")}
+          />
+        </div>
+
+        <div className="inspector-fields">
+          <EdgeSelectField
+            label="语义"
+            value={edge.type}
+            options={[
+              ["dependency", "依赖"],
+              ["data_flow", "数据流"],
+              ["arrow", "箭头"],
+              ["comment", "注释"],
+            ]}
+            onChange={(value) => update({ type: value as CanvasEdge["type"] }, "语义已更新")}
+          />
+          <EdgeSelectField
+            label="线条"
+            value={edge.lineStyle ?? "solid"}
+            options={[
+              ["solid", "实线"],
+              ["dotted", "点虚线"],
+              ["dashed", "短虚线"],
+            ]}
+            onChange={(value) => update({ lineStyle: value as EdgeLineStyle }, "线条样式已更新")}
+          />
+          <EdgeSelectField
+            label="起点箭头"
+            value={edge.startArrow ?? "none"}
+            options={edgeArrowOptions}
+            onChange={(value) => update({ startArrow: value as EdgeArrowStyle }, "起点箭头已更新")}
+          />
+          <EdgeSelectField
+            label="终点箭头"
+            value={edge.endArrow ?? "arrow"}
+            options={edgeArrowOptions}
+            onChange={(value) => update({ endArrow: value as EdgeArrowStyle }, "终点箭头已更新")}
+          />
+        </div>
+
+        <button className="permission-toggle" type="button" onClick={onDelete}>
+          删除连接
+        </button>
+      </div>
+    </section>
+  );
+}
+
+const edgeArrowOptions: Array<[EdgeArrowStyle, string]> = [
+  ["none", "无"],
+  ["arrow", "箭头"],
+  ["circle", "圆点"],
+  ["diamond", "菱形"],
+];
+
+function EdgeSelectField({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<[string, string]>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="property-field">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map(([optionValue, optionLabel]) => (
+          <option key={optionValue} value={optionValue}>
+            {optionLabel}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 function TextNodeInspector({ node, onEditStart, onPreview, onCommit, onCancel, fieldBindings }: TextNodeInspectorProps) {
   const markdownValue = composeMarkdownSource(node);

@@ -53,6 +53,14 @@ export const workspaceSchema = z
         }
         edgeIds.add(edge.id);
 
+        if (edge.sourceNodeId === edge.targetNodeId) {
+          context.addIssue({
+            code: "custom",
+            path: ["pages", pageIndex, "edges", edgeIndex, "targetNodeId"],
+            message: `连接不能指向自身：${edge.sourceNodeId}`,
+          });
+        }
+
         if (!pageNodeIds.has(edge.sourceNodeId)) {
           context.addIssue({
             code: "custom",

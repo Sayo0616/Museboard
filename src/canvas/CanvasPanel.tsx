@@ -41,6 +41,9 @@ export function CanvasPanel() {
   const deleteNode = useWorkspaceStore((state) => state.deleteNode);
   const toggleLockNode = useWorkspaceStore((state) => state.toggleLockNode);
   const createEdgeFromSelection = useWorkspaceStore((state) => state.createEdgeFromSelection);
+  const createEdgeFromHandles = useWorkspaceStore((state) => state.createEdgeFromHandles);
+  const reconnectEdgeEndpoint = useWorkspaceStore((state) => state.reconnectEdgeEndpoint);
+  const deleteEdge = useWorkspaceStore((state) => state.deleteEdge);
   const deleteEdgesForSelection = useWorkspaceStore((state) => state.deleteEdgesForSelection);
   const activePage = getActivePage(workspace);
   const nodes = activePage.nodes;
@@ -241,6 +244,8 @@ export function CanvasPanel() {
           if (target.closest(".node-drag-handle")) return;
           if (target.closest(".node-resize-handle")) return;
           if (target.closest(".canvas-edge-hit")) return;
+          if (target.closest(".edge-endpoint-handle")) return;
+          if (target.closest(".connection-handle")) return;
           if (target.closest(".edge-controls")) return;
           const nodeElement = target.closest<HTMLElement>("[data-node-id]");
           if (nodeElement) {
@@ -430,6 +435,9 @@ export function CanvasPanel() {
           viewportRevision={viewportRevision}
           onSelectEdge={selectEdge}
           onCreateEdge={createEdgeFromSelection}
+          onCreateEdgeFromHandles={createEdgeFromHandles}
+          onReconnectEdgeEndpoint={reconnectEdgeEndpoint}
+          onDeleteEdge={deleteEdge}
           onDeleteSelectedEdges={deleteEdgesForSelection}
         />
         {selectionBox ? <div className="marquee-selection" style={selectionBoxStyle(selectionBox)} /> : null}

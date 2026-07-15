@@ -6,7 +6,18 @@ import { applyOperations, isDestructiveOperation, validateAgentResponse, validat
 import { downloadWorkspaceJson, downloadWorkspacePdf, downloadWorkspacePng } from "./workspaceExport";
 import { initialWorkspace } from "./initialWorkspace";
 import { getActivePage, getActivePageIndex } from "./workspaceSelectors";
-import type { AgentPermissionLevel, AgentTransport, ChatMessage, CanvasNode, Page, VersionSnapshot, Workspace, WorkspaceMode } from "./workspaceTypes";
+import type {
+  AgentPermissionLevel,
+  AgentTransport,
+  ChatMessage,
+  CanvasEdge,
+  CanvasNode,
+  EdgeHandle,
+  Page,
+  VersionSnapshot,
+  Workspace,
+  WorkspaceMode,
+} from "./workspaceTypes";
 import { createId, nowIso } from "../utils/id";
 import { getAtPath } from "../utils/patch";
 import { validateWorkspace } from "./workspaceSchema";
@@ -59,6 +70,10 @@ type WorkspaceState = {
   deleteSelectedNodes: () => void;
   toggleLockSelectedNodes: () => void;
   createEdgeFromSelection: () => void;
+  createEdgeFromHandles: (sourceNodeId: string, sourceHandle: EdgeHandle, targetNodeId: string, targetHandle: EdgeHandle) => void;
+  reconnectEdgeEndpoint: (edgeId: string, endpoint: "source" | "target", nodeId: string, handle: EdgeHandle) => void;
+  updateEdge: (edgeId: string, patch: Partial<CanvasEdge>, eventLabel?: string) => void;
+  deleteEdge: (edgeId: string) => void;
   deleteEdgesForSelection: () => void;
   exportWorkspaceJson: () => void;
   exportWorkspacePng: () => Promise<void>;
@@ -368,9 +383,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
             edge: {
               id: createId("edge"),
               sourceNodeId,
+              sourceHandle: "right",
               targetNodeId,
+              targetHandle: "left",
               type: "dependency",
-              label: `${source.name} -> ${target.name}`,
+              label: "",
+              strokeColor: "#cdbcb0",
+              strokeWidth: 1.5,
+              lineStyle: "solid",
+              startArrow: "none",
+              endArrow: "arrow",
             },
           },
         ],
@@ -381,6 +403,107 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       "user",
       `连接 ${source.name} 和 ${target.name}`,
     );
+  },
+  createEdgeFromHandles: (sourceNodeId, sourceHandle, targetNodeId, targetHandle) => {
+    if (sourceNodeId === targetNodeId) return;
+    const state = get();
+    const page = getActivePage(state.workspace);
+    const source = page.nodes.find((node) => node.id === sourceNodeId);
+    const target = page.nodes.find((node) => node.id === targetNodeId);
+    if (!source || !target) return;
+
+    const edgeId = createId("edge");
+    commitResponse(
+      {
+        message: `已连接 ${source.name} 和 ${target.name}。`,
+        operations: [
+          {
+            type: "create_edge",
+            edge: {
+              id: edgeId,
+              sourceNodeId,
+              sourceHandle,
+              targetNodeId,
+              targetHandle,
+              type: "dependency",
+              label: "",
+              strokeColor: "#cdbcb0",
+              strokeWidth: 1.5,
+              lineStyle: "solid",
+              startArrow: "none",
+              endArrow: "arrow",
+            },
+          },
+        ],
+      },
+      set,
+      get,
+      false,
+      "user",
+      `连接 ${source.name} 和 ${target.name}`,
+    );
+    set({ selectedNodeIds: [], selectedEdgeIds: [edgeId], activeNodeId: null, activeEdgeId: edgeId });
+  },
+  reconnectEdgeEndpoint: (edgeId, endpoint, nodeId, handle) => {
+    const state = get();
+    const page = getActivePage(state.workspace);
+    const edge = page.edges.find((item) => item.id === edgeId);
+    const node = page.nodes.find((item) => item.id === nodeId);
+    if (!edge || !node) return;
+    if (endpoint === "source" && edge.targetNodeId === nodeId) return;
+    if (endpoint === "target" && edge.sourceNodeId === nodeId) return;
+
+    const patch =
+      endpoint === "source"
+        ? { sourceNodeId: nodeId, sourceHandle: handle }
+        : { targetNodeId: nodeId, targetHandle: handle };
+    commitResponse(
+      {
+        message: "本地更新",
+        operations: [{ type: "update_edge", edgeId, patch }],
+      },
+      set,
+      get,
+      false,
+      "user",
+      `重连 ${edge.label || edge.id} ${endpoint === "source" ? "起点" : "终点"}到 ${node.name}`,
+    );
+    set({ selectedNodeIds: [], selectedEdgeIds: [edgeId], activeNodeId: null, activeEdgeId: edgeId });
+  },
+  updateEdge: (edgeId, patch, eventLabel) => {
+    const state = get();
+    const edge = getActivePage(state.workspace).edges.find((item) => item.id === edgeId);
+    if (!edge) return;
+
+    commitResponse(
+      {
+        message: "本地更新",
+        operations: [{ type: "update_edge", edgeId, patch }],
+      },
+      set,
+      get,
+      false,
+      "user",
+      eventLabel ?? `更新连接 ${edge.label || edge.id}`,
+    );
+  },
+  deleteEdge: (edgeId) => {
+    const state = get();
+    const edge = getActivePage(state.workspace).edges.find((item) => item.id === edgeId);
+    if (!edge) return;
+
+    commitResponse(
+      {
+        message: "已删除连接。",
+        operations: [{ type: "delete_edge", edgeId }],
+      },
+      set,
+      get,
+      false,
+      "user",
+      `删除连接 ${edge.label || edge.id}`,
+    );
+    set({ selectedEdgeIds: [], activeEdgeId: null });
   },
   deleteEdgesForSelection: () => {
     const state = get();

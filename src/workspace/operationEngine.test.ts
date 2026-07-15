@@ -115,6 +115,90 @@ describe("operation engine boundaries", () => {
     ).toThrow(/Edge id already exists/);
   });
 
+  it("rejects self-connected edges", () => {
+    expect(() =>
+      applyOperations(workspaceFixture(), [
+        {
+          type: "create_edge",
+          edge: { id: "edge_self", sourceNodeId: "note_goal", targetNodeId: "note_goal", type: "dependency" },
+        },
+      ]),
+    ).toThrow(/cannot connect a node to itself/);
+  });
+
+  it("updates edge presentation fields through update_edge", () => {
+    const updated = applyOperations(
+      workspaceFixture(),
+      [
+        {
+          type: "update_edge",
+          edgeId: "edge_slider_metric",
+          patch: {
+            label: "Budget signal",
+            sourceHandle: "bottom",
+            targetHandle: "top",
+            strokeColor: "#d86f45",
+            strokeWidth: 3,
+            lineStyle: "dotted",
+            startArrow: "circle",
+            endArrow: "diamond",
+          },
+        },
+      ],
+      "user",
+    );
+
+    expect(updated.pages[0].edges.find((edge) => edge.id === "edge_slider_metric")).toMatchObject({
+      label: "Budget signal",
+      sourceHandle: "bottom",
+      targetHandle: "top",
+      strokeColor: "#d86f45",
+      strokeWidth: 3,
+      lineStyle: "dotted",
+      startArrow: "circle",
+      endArrow: "diamond",
+    });
+  });
+
+  it("updates edge endpoints through update_edge and rejects self-reconnects", () => {
+    const updated = applyOperations(
+      workspaceFixture(),
+      [
+        {
+          type: "update_edge",
+          edgeId: "edge_slider_metric",
+          patch: {
+            sourceNodeId: "note_goal",
+            sourceHandle: "bottom",
+            targetHandle: "left",
+          },
+        },
+      ],
+      "user",
+    );
+
+    expect(updated.pages[0].edges.find((edge) => edge.id === "edge_slider_metric")).toMatchObject({
+      sourceNodeId: "note_goal",
+      sourceHandle: "bottom",
+      targetNodeId: "card_roi",
+      targetHandle: "left",
+    });
+
+    expect(() =>
+      applyOperations(
+        workspaceFixture(),
+        [
+          {
+            type: "update_edge",
+            edgeId: "edge_slider_metric",
+            patch: { targetNodeId: "slider_budget" },
+          },
+        ],
+        "user",
+      ),
+    ).toThrow(/cannot connect a node to itself/);
+  });
+
   it("does not create a version for an empty operation list", () => {
     const workspace = workspaceFixture();
 

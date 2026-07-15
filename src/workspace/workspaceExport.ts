@@ -1,4 +1,4 @@
-import type { CanvasNode, Workspace } from "./workspaceTypes";
+import type { CanvasNode, EdgeArrowStyle, EdgeHandle, EdgeLineStyle, Workspace } from "./workspaceTypes";
 import { getActivePage } from "./workspaceSelectors";
 
 export function downloadWorkspaceJson(workspace: Workspace): void {
@@ -78,14 +78,103 @@ function workspaceToSvg(workspace: Workspace): string {
       const source = page.nodes.find((node) => node.id === edge.sourceNodeId);
       const target = page.nodes.find((node) => node.id === edge.targetNodeId);
       if (!source || !target) return "";
-      const x1 = source.position.x + source.position.width + offsetX;
-      const y1 = source.position.y + source.position.height / 2 + offsetY;
-      const x2 = target.position.x + offsetX;
-      const y2 = target.position.y + target.position.height / 2 + offsetY;
-      return `<path d="M ${x1} ${y1} C ${(x1 + x2) / 2} ${y1}, ${(x1 + x2) / 2} ${y2}, ${x2} ${y2}" fill="none" stroke="#cdbcb0" stroke-width="1.5"/>`;
+      const sourceHandle = edge.sourceHandle ?? "right";
+      const targetHandle = edge.targetHandle ?? "left";
+      const start = edgePoint(source, sourceHandle, offsetX, offsetY);
+      const end = edgePoint(target, targetHandle, offsetX, offsetY);
+      const labelPoint = edgeLabelPoint(start, sourceHandle, end, targetHandle);
+      const stroke = escapeXml(edge.strokeColor ?? "#cdbcb0");
+      const strokeWidth = edge.strokeWidth ?? 1.5;
+      const label = edge.label
+        ? `<text x="${labelPoint.x}" y="${labelPoint.y}" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#817b73">${escapeXml(edge.label)}</text>`
+        : "";
+      return `<path d="${makeEdgePath(start, sourceHandle, end, targetHandle)}" fill="none" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-linecap="round"${dashAttr(edge.lineStyle, strokeWidth)}${markerAttr("start", edge.startArrow)}${markerAttr("end", edge.endArrow ?? "arrow")}/>${label}`;
     })
     .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#faf9f7"/>${edges}${nodes}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><defs><marker id="edge-marker-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto-start-reverse" markerUnits="strokeWidth"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/></marker><marker id="edge-marker-circle" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto" markerUnits="strokeWidth"><circle cx="4" cy="4" r="3" fill="context-stroke"/></marker><marker id="edge-marker-diamond" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M 5 0 L 10 5 L 5 10 L 0 5 z" fill="context-stroke"/></marker></defs><rect width="100%" height="100%" fill="#faf9f7"/>${edges}${nodes}</svg>`;
+}
+
+function edgePoint(node: CanvasNode, handle: EdgeHandle, offsetX: number, offsetY: number) {
+  switch (handle) {
+    case "top":
+      return { x: node.position.x + node.position.width / 2 + offsetX, y: node.position.y + offsetY };
+    case "right":
+      return { x: node.position.x + node.position.width + offsetX, y: node.position.y + node.position.height / 2 + offsetY };
+    case "bottom":
+      return { x: node.position.x + node.position.width / 2 + offsetX, y: node.position.y + node.position.height + offsetY };
+    case "left":
+      return { x: node.position.x + offsetX, y: node.position.y + node.position.height / 2 + offsetY };
+  }
+}
+
+function makeEdgePath(
+  start: { x: number; y: number },
+  sourceHandle: EdgeHandle,
+  end: { x: number; y: number },
+  targetHandle: EdgeHandle,
+) {
+  const { controlStart, controlEnd } = edgeControlPoints(start, sourceHandle, end, targetHandle);
+  return `M ${start.x} ${start.y} C ${controlStart.x} ${controlStart.y}, ${controlEnd.x} ${controlEnd.y}, ${end.x} ${end.y}`;
+}
+
+function edgeLabelPoint(
+  start: { x: number; y: number },
+  sourceHandle: EdgeHandle,
+  end: { x: number; y: number },
+  targetHandle: EdgeHandle,
+) {
+  const { controlStart, controlEnd } = edgeControlPoints(start, sourceHandle, end, targetHandle);
+  return cubicPoint(start, controlStart, controlEnd, end, 0.5);
+}
+
+function edgeControlPoints(
+  start: { x: number; y: number },
+  sourceHandle: EdgeHandle,
+  end: { x: number; y: number },
+  targetHandle: EdgeHandle,
+) {
+  const distance = Math.max(44, Math.min(180, Math.hypot(end.x - start.x, end.y - start.y) * 0.34));
+  const controlStart = controlPoint(start, sourceHandle, distance);
+  const controlEnd = controlPoint(end, targetHandle, distance);
+  return { controlStart, controlEnd };
+}
+
+function controlPoint(point: { x: number; y: number }, handle: EdgeHandle, distance: number) {
+  switch (handle) {
+    case "top":
+      return { x: point.x, y: point.y - distance };
+    case "right":
+      return { x: point.x + distance, y: point.y };
+    case "bottom":
+      return { x: point.x, y: point.y + distance };
+    case "left":
+      return { x: point.x - distance, y: point.y };
+  }
+}
+
+function cubicPoint(
+  start: { x: number; y: number },
+  controlStart: { x: number; y: number },
+  controlEnd: { x: number; y: number },
+  end: { x: number; y: number },
+  t: number,
+) {
+  const mt = 1 - t;
+  return {
+    x: mt ** 3 * start.x + 3 * mt ** 2 * t * controlStart.x + 3 * mt * t ** 2 * controlEnd.x + t ** 3 * end.x,
+    y: mt ** 3 * start.y + 3 * mt ** 2 * t * controlStart.y + 3 * mt * t ** 2 * controlEnd.y + t ** 3 * end.y,
+  };
+}
+
+function markerAttr(position: "start" | "end", style: EdgeArrowStyle | undefined) {
+  if (!style || style === "none") return "";
+  return ` marker-${position}="url(#edge-marker-${style})"`;
+}
+
+function dashAttr(style: EdgeLineStyle | undefined, width: number) {
+  if (style === "dotted") return ` stroke-dasharray="${Math.max(1, width)} ${Math.max(4, width * 3)}"`;
+  if (style === "dashed") return ` stroke-dasharray="${Math.max(5, width * 4)} ${Math.max(4, width * 3)}"`;
+  return "";
 }
 
 function getWorkspaceBounds(workspace: Workspace) {

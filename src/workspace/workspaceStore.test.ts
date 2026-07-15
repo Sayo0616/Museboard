@@ -58,6 +58,76 @@ describe("workspace interaction state", () => {
     expect(useWorkspaceStore.getState().selectedNodeIds).toEqual(["slider_budget"]);
     expect(useWorkspaceStore.getState().activeNodeId).toBe("slider_budget");
   });
+
+  it("creates an editable edge from connection handles", () => {
+    useWorkspaceStore.getState().createEdgeFromHandles("slider_budget", "bottom", "card_roi", "top");
+
+    const state = useWorkspaceStore.getState();
+    const edge = state.workspace.pages[0].edges.find((item) => item.sourceHandle === "bottom" && item.targetHandle === "top");
+
+    expect(edge).toMatchObject({
+      sourceNodeId: "slider_budget",
+      sourceHandle: "bottom",
+      targetNodeId: "card_roi",
+      targetHandle: "top",
+      label: "",
+      lineStyle: "solid",
+      startArrow: "none",
+      endArrow: "arrow",
+    });
+    expect(state.selectedEdgeIds).toEqual([edge?.id]);
+    expect(state.activeEdgeId).toBe(edge?.id);
+  });
+
+  it("does not create an edge from a node to itself", () => {
+    const edgeCount = useWorkspaceStore.getState().workspace.pages[0].edges.length;
+
+    useWorkspaceStore.getState().createEdgeFromHandles("slider_budget", "right", "slider_budget", "left");
+
+    expect(useWorkspaceStore.getState().workspace.pages[0].edges).toHaveLength(edgeCount);
+  });
+
+  it("updates edge styling through store actions", () => {
+    useWorkspaceStore.getState().updateEdge("edge_slider_metric", {
+      label: "Budget",
+      strokeColor: "#d86f45",
+      strokeWidth: 4,
+      lineStyle: "dashed",
+      startArrow: "diamond",
+      endArrow: "circle",
+    });
+
+    expect(useWorkspaceStore.getState().workspace.pages[0].edges.find((edge) => edge.id === "edge_slider_metric")).toMatchObject({
+      label: "Budget",
+      strokeColor: "#d86f45",
+      strokeWidth: 4,
+      lineStyle: "dashed",
+      startArrow: "diamond",
+      endArrow: "circle",
+    });
+  });
+
+  it("reconnects one edge endpoint and keeps the edge selected", () => {
+    useWorkspaceStore.getState().reconnectEdgeEndpoint("edge_slider_metric", "source", "note_goal", "bottom");
+
+    const state = useWorkspaceStore.getState();
+    expect(state.workspace.pages[0].edges.find((edge) => edge.id === "edge_slider_metric")).toMatchObject({
+      sourceNodeId: "note_goal",
+      sourceHandle: "bottom",
+      targetNodeId: "card_roi",
+    });
+    expect(state.selectedEdgeIds).toEqual(["edge_slider_metric"]);
+    expect(state.activeEdgeId).toBe("edge_slider_metric");
+  });
+
+  it("deletes a single edge by id", () => {
+    useWorkspaceStore.getState().deleteEdge("edge_slider_metric");
+
+    const state = useWorkspaceStore.getState();
+    expect(state.workspace.pages[0].edges.some((edge) => edge.id === "edge_slider_metric")).toBe(false);
+    expect(state.selectedEdgeIds).toEqual([]);
+    expect(state.activeEdgeId).toBeNull();
+  });
 });
 
 describe("agent operation confirmation", () => {

@@ -21,6 +21,13 @@ describe("workspaceSchema", () => {
     expect(() => validateWorkspace(workspace)).toThrow(/连接终点不存在/);
   });
 
+  it("rejects edges that connect a node to itself", () => {
+    const workspace = structuredClone(initialWorkspace);
+    workspace.pages[0].edges[0].targetNodeId = workspace.pages[0].edges[0].sourceNodeId;
+
+    expect(() => validateWorkspace(workspace)).toThrow(/连接不能指向自身/);
+  });
+
   it("rejects duplicate node ids across pages", () => {
     const workspace = structuredClone(initialWorkspace);
     workspace.pages.push({

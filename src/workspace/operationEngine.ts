@@ -95,9 +95,30 @@ function applyOperation(workspace: Workspace, operation: WorkspaceOperation, act
       if (workspace.pages.some((item) => item.edges.some((edge) => edge.id === operation.edge.id))) {
         throw new Error(`Edge id already exists: ${operation.edge.id}`);
       }
+      if (operation.edge.sourceNodeId === operation.edge.targetNodeId) {
+        throw new Error("Edge cannot connect a node to itself");
+      }
       requireNode(page.nodes, operation.edge.sourceNodeId);
       requireNode(page.nodes, operation.edge.targetNodeId);
       return withPage({ ...page, edges: [...page.edges, operation.edge] });
+    }
+    case "update_edge": {
+      if (!page.edges.some((edge) => edge.id === operation.edgeId)) {
+        throw new Error(`Edge does not exist on the active page: ${operation.edgeId}`);
+      }
+      return withPage({
+        ...page,
+        edges: page.edges.map((edge) => {
+          if (edge.id !== operation.edgeId) return edge;
+          const nextEdge = { ...edge, ...operation.patch };
+          if (nextEdge.sourceNodeId === nextEdge.targetNodeId) {
+            throw new Error("Edge cannot connect a node to itself");
+          }
+          requireNode(page.nodes, nextEdge.sourceNodeId);
+          requireNode(page.nodes, nextEdge.targetNodeId);
+          return nextEdge;
+        }),
+      });
     }
     case "delete_edge": {
       if (!page.edges.some((edge) => edge.id === operation.edgeId)) {

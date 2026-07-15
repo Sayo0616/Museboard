@@ -60,14 +60,25 @@ export type CanvasNode = {
   };
 };
 
+export type EdgeHandle = "top" | "right" | "bottom" | "left";
+
+export type EdgeArrowStyle = "none" | "arrow" | "circle" | "diamond";
+
+export type EdgeLineStyle = "solid" | "dotted" | "dashed";
+
 export type CanvasEdge = {
   id: string;
   sourceNodeId: string;
-  sourceHandle?: string;
+  sourceHandle?: EdgeHandle;
   targetNodeId: string;
-  targetHandle?: string;
+  targetHandle?: EdgeHandle;
   type: "arrow" | "data_flow" | "dependency" | "comment";
   label?: string;
+  strokeColor?: string;
+  strokeWidth?: number;
+  lineStyle?: EdgeLineStyle;
+  startArrow?: EdgeArrowStyle;
+  endArrow?: EdgeArrowStyle;
 };
 
 export type Page = {

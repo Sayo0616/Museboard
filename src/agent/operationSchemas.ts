@@ -38,6 +38,12 @@ const positionSchema = z.object({
   rotation: z.number().optional(),
 });
 
+const edgeHandleSchema = z.enum(["top", "right", "bottom", "left"]);
+const edgeArrowStyleSchema = z.enum(["none", "arrow", "circle", "diamond"]);
+const edgeLineStyleSchema = z.enum(["solid", "dotted", "dashed"]);
+const edgeTypeSchema = z.enum(["arrow", "data_flow", "dependency", "comment"]);
+const edgeColorSchema = z.string().min(1).max(48);
+
 export const canvasNodeSchema = z.object({
   id: z.string().min(1),
   type: nodeTypeSchema,
@@ -76,11 +82,16 @@ export const canvasNodeSchema = z.object({
 export const canvasEdgeSchema = z.object({
   id: z.string().min(1),
   sourceNodeId: z.string().min(1),
-  sourceHandle: z.string().optional(),
+  sourceHandle: edgeHandleSchema.optional(),
   targetNodeId: z.string().min(1),
-  targetHandle: z.string().optional(),
-  type: z.enum(["arrow", "data_flow", "dependency", "comment"]),
+  targetHandle: edgeHandleSchema.optional(),
+  type: edgeTypeSchema,
   label: z.string().optional(),
+  strokeColor: edgeColorSchema.optional(),
+  strokeWidth: z.number().min(1).max(12).optional(),
+  lineStyle: edgeLineStyleSchema.optional(),
+  startArrow: edgeArrowStyleSchema.optional(),
+  endArrow: edgeArrowStyleSchema.optional(),
 });
 
 export const workspaceVariableSchema = z.discriminatedUnion("type", [
@@ -127,6 +138,29 @@ const createEdgeOperationSchema = z.object({
   edge: canvasEdgeSchema,
 });
 
+const updateEdgePatchSchema = z
+  .object({
+    sourceNodeId: z.string().min(1).optional(),
+    targetNodeId: z.string().min(1).optional(),
+    type: edgeTypeSchema.optional(),
+    label: z.string().optional(),
+    sourceHandle: edgeHandleSchema.optional(),
+    targetHandle: edgeHandleSchema.optional(),
+    strokeColor: edgeColorSchema.optional(),
+    strokeWidth: z.number().min(1).max(12).optional(),
+    lineStyle: edgeLineStyleSchema.optional(),
+    startArrow: edgeArrowStyleSchema.optional(),
+    endArrow: edgeArrowStyleSchema.optional(),
+  })
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0, { message: "Update edge patch cannot be empty" });
+
+const updateEdgeOperationSchema = z.object({
+  type: z.literal("update_edge"),
+  edgeId: z.string().min(1),
+  patch: updateEdgePatchSchema,
+});
+
 const deleteEdgeOperationSchema = z.object({
   type: z.literal("delete_edge"),
   edgeId: z.string().min(1),
@@ -150,6 +184,7 @@ export const workspaceOperationSchema = z.discriminatedUnion("type", [
   deleteNodeOperationSchema,
   moveNodeOperationSchema,
   createEdgeOperationSchema,
+  updateEdgeOperationSchema,
   deleteEdgeOperationSchema,
   groupNodesOperationSchema,
   setVariableOperationSchema,

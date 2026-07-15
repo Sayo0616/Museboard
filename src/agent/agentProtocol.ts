@@ -27,6 +27,27 @@ export type CreateEdgeOperation = {
   edge: CanvasEdge;
 };
 
+export type UpdateEdgeOperation = {
+  type: "update_edge";
+  edgeId: string;
+  patch: Partial<
+    Pick<
+      CanvasEdge,
+      | "sourceNodeId"
+      | "targetNodeId"
+      | "type"
+      | "label"
+      | "sourceHandle"
+      | "targetHandle"
+      | "strokeColor"
+      | "strokeWidth"
+      | "lineStyle"
+      | "startArrow"
+      | "endArrow"
+    >
+  >;
+};
+
 export type DeleteEdgeOperation = {
   type: "delete_edge";
   edgeId: string;
@@ -50,6 +71,7 @@ export type WorkspaceOperation =
   | DeleteNodeOperation
   | MoveNodeOperation
   | CreateEdgeOperation
+  | UpdateEdgeOperation
   | DeleteEdgeOperation
   | GroupNodesOperation
   | SetVariableOperation;
