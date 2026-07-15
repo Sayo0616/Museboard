@@ -75,4 +75,23 @@ describe("agent operation confirmation", () => {
     expect(state.workspace.pages[0].nodes.some((node) => node.id === "note_goal")).toBe(true);
     expect(state.workspace.pages[0].edges.some((edge) => edge.id === "edge_slider_metric")).toBe(true);
   });
+
+  it("does not create undo or version history for an empty applied response", () => {
+    useWorkspaceStore.setState({
+      mode: "agent",
+      agentPermissionLevel: "auto_apply_safe",
+      past: [],
+      future: [],
+      versionHistory: [],
+      saveState: "saved",
+    });
+
+    useWorkspaceStore.getState().applyAgentResponse({ message: "无需修改。", operations: [] });
+
+    const state = useWorkspaceStore.getState();
+    expect(state.past).toEqual([]);
+    expect(state.versionHistory).toEqual([]);
+    expect(state.workspace.version).toBe(initialWorkspace.version);
+    expect(state.saveState).toBe("saved");
+  });
 });

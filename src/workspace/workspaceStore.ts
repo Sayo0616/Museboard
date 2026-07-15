@@ -722,6 +722,7 @@ function commitResponse(
   try {
     const state = get();
     const nextWorkspace = applyOperations(state.workspace, response.operations, actor);
+    const workspaceChanged = nextWorkspace !== state.workspace;
     const nextPage = getActivePage(nextWorkspace);
     const nextNodeIds = new Set(nextPage.nodes.map((node) => node.id));
     const nextEdgeIds = new Set(nextPage.edges.map((edge) => edge.id));
@@ -734,8 +735,8 @@ function commitResponse(
 
     set({
       workspace: nextWorkspace,
-      past: [...state.past, state.workspace].slice(-40),
-      future: [],
+      past: workspaceChanged ? [...state.past, state.workspace].slice(-40) : state.past,
+      future: workspaceChanged ? [] : state.future,
       selectedNodeIds: state.selectedNodeIds.filter((nodeId) => nextNodeIds.has(nodeId)),
       selectedEdgeIds: state.selectedEdgeIds.filter((edgeId) => nextEdgeIds.has(edgeId)),
       activeNodeId: state.activeNodeId && nextNodeIds.has(state.activeNodeId) ? state.activeNodeId : null,
@@ -743,9 +744,11 @@ function commitResponse(
       hoveredNodeId: state.hoveredNodeId && nextNodeIds.has(state.hoveredNodeId) ? state.hoveredNodeId : null,
       messages: showMessage ? [...state.messages, agentMessage] : state.messages,
       lastAppliedResponse: showMessage && actor === "agent" ? response : state.lastAppliedResponse,
-      versionHistory: pushVersionSnapshot(state.versionHistory, nextWorkspace, eventLabel ?? response.message, state.workspace),
+      versionHistory: workspaceChanged
+        ? pushVersionSnapshot(state.versionHistory, nextWorkspace, eventLabel ?? response.message, state.workspace)
+        : state.versionHistory,
       recentUserEvents: eventLabel ? [...state.recentUserEvents, eventLabel].slice(-12) : state.recentUserEvents,
-      saveState: "dirty",
+      saveState: workspaceChanged ? "dirty" : state.saveState,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "未知错误";
