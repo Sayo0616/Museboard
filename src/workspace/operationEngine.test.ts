@@ -121,4 +121,68 @@ describe("operation engine boundaries", () => {
     expect(applyOperations(workspace, [])).toBe(workspace);
     expect(workspace.version).toBe(initialWorkspace.version);
   });
+
+  it("sanitizes permissions and audit metadata on agent-created nodes", () => {
+    const template = structuredClone(workspaceFixture().pages[0].nodes[0]);
+    const created = applyOperations(workspaceFixture(), [
+      {
+        type: "create_node",
+        node: {
+          ...template,
+          id: "agent_created",
+          permissions: { userEditable: false, agentEditable: false, deletable: false },
+          metadata: {
+            createdBy: "user",
+            updatedBy: "user",
+            createdAt: "2000-01-01T00:00:00.000Z",
+            updatedAt: "2000-01-01T00:00:00.000Z",
+          },
+        },
+      },
+    ]).pages[0].nodes.find((node) => node.id === "agent_created");
+
+    expect(created?.permissions).toEqual({ userEditable: true, agentEditable: true, deletable: true });
+    expect(created?.metadata).toMatchObject({ createdBy: "agent", updatedBy: "agent" });
+    expect(created?.metadata?.createdAt).not.toBe("2000-01-01T00:00:00.000Z");
+  });
+
+  it.each(["metadata.updatedBy", "permissions.deletable", "id", "props.__proto__.polluted"])(
+    "rejects unsafe binding target %s",
+    (target) => {
+      const template = structuredClone(workspaceFixture().pages[0].nodes[0]);
+      expect(() =>
+        applyOperations(workspaceFixture(), [
+          {
+            type: "create_node",
+            node: {
+              ...template,
+              id: `bound_${target}`,
+              bindings: { input: [{ variable: "sliderValue", target }] },
+            },
+          },
+        ]),
+      ).toThrow();
+    },
+  );
+
+  it("validates component props after applying an input binding", () => {
+    const template = structuredClone(workspaceFixture().pages[0].nodes[0]);
+    expect(() =>
+      applyOperations(workspaceFixture(), [
+        {
+          type: "create_node",
+          node: {
+            ...template,
+            id: "invalid_bound_text",
+            bindings: { input: [{ variable: "sliderValue", target: "props.text" }] },
+          },
+        },
+      ]),
+    ).toThrow();
+  });
+
+  it("rejects empty update and move payloads", () => {
+    expect(() => applyOperations(workspaceFixture(), [{ type: "update_node", nodeId: "note_goal", patch: {} }])).toThrow();
+    expect(() => applyOperations(workspaceFixture(), [{ type: "move_node", nodeId: "note_goal", position: {} }])).toThrow();
+  });
 });

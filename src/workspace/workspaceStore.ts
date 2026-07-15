@@ -680,9 +680,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ saveState: "saved" });
   },
   loadWorkspace: () => {
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) return;
     try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return;
       const workspace = validateWorkspaceComponentProps(validateWorkspace(migrateLegacyWorkspace(JSON.parse(raw) as unknown)));
       set((state) => ({
         workspace,

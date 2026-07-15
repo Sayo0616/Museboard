@@ -48,7 +48,7 @@ function applyOperation(workspace: Workspace, operation: WorkspaceOperation, act
       if (workspace.pages.some((item) => item.nodes.some((node) => node.id === operation.node.id))) {
         throw new Error(`Node id already exists: ${operation.node.id}`);
       }
-      const node = validateComponentProps(withMetadata(operation.node));
+      const node = validateComponentProps(withMetadata(operation.node, actor));
       return withPage({
         ...page,
         nodes: [...page.nodes, node],
@@ -172,15 +172,16 @@ function getActivePageIndex(workspace: Workspace): number {
   return index >= 0 ? index : 0;
 }
 
-function withMetadata(node: CanvasNode): CanvasNode {
+function withMetadata(node: CanvasNode, actor: OperationActor): CanvasNode {
   const timestamp = nowIso();
+  const defaultPermissions = { userEditable: true, agentEditable: true, deletable: true };
   return {
     ...node,
-    permissions: node.permissions ?? { userEditable: true, agentEditable: true, deletable: true },
+    permissions: actor === "agent" ? defaultPermissions : (node.permissions ?? defaultPermissions),
     metadata: {
-      createdBy: node.metadata?.createdBy ?? "agent",
-      updatedBy: node.metadata?.updatedBy ?? "agent",
-      createdAt: node.metadata?.createdAt ?? timestamp,
+      createdBy: actor,
+      updatedBy: actor,
+      createdAt: timestamp,
       updatedAt: timestamp,
       description: node.metadata?.description,
     },
@@ -231,10 +232,7 @@ function syncBindings(workspace: Workspace): Workspace {
       if (typeof value === "undefined") return;
       variables = {
         ...variables,
-        [binding.variable]: {
-          type: inferVariableType(value),
-          value: normalizeVariableValue(value),
-        },
+        [binding.variable]: toWorkspaceVariable(value),
       };
     });
   });
@@ -242,11 +240,12 @@ function syncBindings(workspace: Workspace): Workspace {
   const nodes = page.nodes.map((node) => {
     if (!node.bindings?.input?.length) return node;
 
-    return node.bindings.input.reduce<CanvasNode>((current, binding) => {
+    const boundNode = node.bindings.input.reduce<CanvasNode>((current, binding) => {
       const variable = variables[binding.variable];
       if (!variable) return current;
       return applyInputBinding(current, binding.target, binding.variable, variable);
     }, node);
+    return validateComponentProps(boundNode);
   });
 
   return {
@@ -265,15 +264,11 @@ function getNodeValue(node: CanvasNode, prop: string): unknown {
   }, node.props);
 }
 
-function inferVariableType(value: unknown): WorkspaceVariable["type"] {
-  if (typeof value === "number") return "number";
-  if (typeof value === "boolean") return "boolean";
-  return "string";
-}
-
-function normalizeVariableValue(value: unknown): WorkspaceVariable["value"] {
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "string") return value;
-  return JSON.stringify(value);
+function toWorkspaceVariable(value: unknown): WorkspaceVariable {
+  if (typeof value === "number") return { type: "number", value };
+  if (typeof value === "boolean") return { type: "boolean", value };
+  if (typeof value === "string") return { type: "string", value };
+  return { type: "string", value: JSON.stringify(value) };
 }
 
 function applyInputBinding(node: CanvasNode, target: string | undefined, variableName: string, variable: WorkspaceVariable): CanvasNode {

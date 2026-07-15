@@ -1,5 +1,22 @@
 import { z } from "zod";
 
+const unsafePathSegments = new Set(["__proto__", "prototype", "constructor"]);
+
+const safePathSchema = z
+  .string()
+  .min(1, "Path cannot be empty")
+  .refine(
+    (path) => {
+      const segments = path.split(".");
+      return segments.every((segment) => segment.length > 0 && !unsafePathSegments.has(segment));
+    },
+    { message: "Path contains an invalid or unsafe segment" },
+  );
+
+const bindingTargetSchema = safePathSchema.refine((path) => path.startsWith("props.") && path.length > "props.".length, {
+  message: "Binding target must be a nested props path",
+});
+
 export const nodeTypeSchema = z.enum([
   "text",
   "button",
@@ -30,8 +47,12 @@ export const canvasNodeSchema = z.object({
   state: z.record(z.string(), z.unknown()).optional(),
   bindings: z
     .object({
-      input: z.array(z.object({ prop: z.string().optional(), target: z.string().optional(), variable: z.string() })).optional(),
-      output: z.array(z.object({ prop: z.string().optional(), target: z.string().optional(), variable: z.string() })).optional(),
+      input: z
+        .array(z.object({ prop: safePathSchema.optional(), target: bindingTargetSchema.optional(), variable: z.string().min(1) }))
+        .optional(),
+      output: z
+        .array(z.object({ prop: safePathSchema.optional(), target: bindingTargetSchema.optional(), variable: z.string().min(1) }))
+        .optional(),
     })
     .optional(),
   permissions: z
@@ -73,15 +94,13 @@ const createNodeOperationSchema = z.object({
   node: canvasNodeSchema,
 });
 
-const unsafePatchPathSegments = new Set(["__proto__", "prototype", "constructor"]);
-
 const patchPathSchema = z
   .string()
   .min(1, "Update path cannot be empty")
   .refine(
     (path) => {
       const segments = path.split(".");
-      return segments.every((segment) => segment.length > 0 && !unsafePatchPathSegments.has(segment));
+      return segments.every((segment) => segment.length > 0 && !unsafePathSegments.has(segment));
     },
     { message: "Update path contains an invalid or unsafe segment" },
   );
@@ -89,7 +108,7 @@ const patchPathSchema = z
 const updateNodeOperationSchema = z.object({
   type: z.literal("update_node"),
   nodeId: z.string().min(1),
-  patch: z.record(patchPathSchema, z.unknown()),
+  patch: z.record(patchPathSchema, z.unknown()).refine((patch) => Object.keys(patch).length > 0, { message: "Update patch cannot be empty" }),
 });
 
 const deleteNodeOperationSchema = z.object({
@@ -100,7 +119,7 @@ const deleteNodeOperationSchema = z.object({
 const moveNodeOperationSchema = z.object({
   type: z.literal("move_node"),
   nodeId: z.string().min(1),
-  position: positionSchema.partial(),
+  position: positionSchema.partial().refine((position) => Object.keys(position).length > 0, { message: "Move position cannot be empty" }),
 });
 
 const createEdgeOperationSchema = z.object({

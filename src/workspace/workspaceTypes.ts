@@ -16,10 +16,10 @@ export type AgentPermissionLevel = "suggest" | "auto_apply_safe" | "confirm_dest
 
 export type AgentTransport = "local" | "http" | "sse" | "websocket";
 
-export type WorkspaceVariable = {
-  type: "number" | "string" | "boolean";
-  value: number | string | boolean;
-};
+export type WorkspaceVariable =
+  | { type: "number"; value: number }
+  | { type: "string"; value: string }
+  | { type: "boolean"; value: boolean };
 
 export type Binding = {
   prop?: string;
