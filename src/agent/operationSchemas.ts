@@ -62,6 +62,12 @@ export const canvasEdgeSchema = z.object({
   label: z.string().optional(),
 });
 
+export const workspaceVariableSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("number"), value: z.number() }),
+  z.object({ type: z.literal("string"), value: z.string() }),
+  z.object({ type: z.literal("boolean"), value: z.boolean() }),
+]);
+
 const createNodeOperationSchema = z.object({
   type: z.literal("create_node"),
   node: canvasNodeSchema,
@@ -116,11 +122,7 @@ const groupNodesOperationSchema = z.object({
 const setVariableOperationSchema = z.object({
   type: z.literal("set_variable"),
   key: z.string().min(1),
-  variable: z.discriminatedUnion("type", [
-    z.object({ type: z.literal("number"), value: z.number() }),
-    z.object({ type: z.literal("string"), value: z.string() }),
-    z.object({ type: z.literal("boolean"), value: z.boolean() }),
-  ]),
+  variable: workspaceVariableSchema,
 });
 
 export const workspaceOperationSchema = z.discriminatedUnion("type", [

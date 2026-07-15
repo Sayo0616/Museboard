@@ -1,12 +1,6 @@
 import { z } from "zod";
-import { canvasEdgeSchema, canvasNodeSchema } from "../agent/operationSchemas";
+import { canvasEdgeSchema, canvasNodeSchema, workspaceVariableSchema } from "../agent/operationSchemas";
 import type { Workspace } from "./workspaceTypes";
-
-const workspaceVariableSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("number"), value: z.number() }),
-  z.object({ type: z.literal("string"), value: z.string() }),
-  z.object({ type: z.literal("boolean"), value: z.boolean() }),
-]);
 
 const pageSchema = z.object({
   id: z.string().min(1),
