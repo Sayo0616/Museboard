@@ -9,6 +9,7 @@ import { getActivePage } from "../workspace/workspaceSelectors";
 export function ChatPanel() {
   const messages = useWorkspaceStore((state) => state.messages);
   const submitMessage = useWorkspaceStore((state) => state.submitMessage);
+  const agentRequestStatus = useWorkspaceStore((state) => state.agentRequestStatus);
   const pendingResponse = useWorkspaceStore((state) => state.pendingResponse);
   const lastAppliedResponse = useWorkspaceStore((state) => state.lastAppliedResponse);
   const workspace = useWorkspaceStore((state) => state.workspace);
@@ -89,7 +90,13 @@ export function ChatPanel() {
           </div>
         </div>
       ) : null}
-      <ChatInput nodes={nodes} selectedNodeIds={selectedNodeIds} onSubmit={(value) => void submitMessage(value)} />
+      <ChatInput
+        nodes={nodes}
+        selectedNodeIds={selectedNodeIds}
+        isAgentRunning={agentRequestStatus === "running"}
+        hasPendingResponse={Boolean(pendingResponse)}
+        onSubmit={(value) => void submitMessage(value)}
+      />
     </section>
   );
 }

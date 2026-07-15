@@ -1703,6 +1703,11 @@ input[type="range"]:disabled {
   line-height: 1.5;
 }
 
+.chat-input textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .chat-input .ui-button {
   align-self: end;
 }

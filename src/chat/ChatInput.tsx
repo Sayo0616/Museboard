@@ -6,11 +6,14 @@ import type { CanvasNode } from "../workspace/workspaceTypes";
 type ChatInputProps = {
   nodes: CanvasNode[];
   selectedNodeIds: string[];
+  isAgentRunning: boolean;
+  hasPendingResponse: boolean;
   onSubmit: (value: string) => void;
 };
 
-export function ChatInput({ nodes, selectedNodeIds, onSubmit }: ChatInputProps) {
+export function ChatInput({ nodes, selectedNodeIds, isAgentRunning, hasPendingResponse, onSubmit }: ChatInputProps) {
   const [value, setValue] = useState("");
+  const isDisabled = isAgentRunning || hasPendingResponse;
   const mentionQuery = getMentionQuery(value);
   const suggestions =
     mentionQuery === null
@@ -26,20 +29,30 @@ export function ChatInput({ nodes, selectedNodeIds, onSubmit }: ChatInputProps) 
     setValue(next);
   };
 
+  const inputHint = isAgentRunning
+    ? "Agent 正在处理，请稍候"
+    : hasPendingResponse
+      ? "请先接受或放弃待确认变更"
+      : selectedNodeIds.length
+        ? `已选 ${selectedNodeIds.length} 个对象，可输入“优化这些”`
+        : "输入 @ 可引用画板对象";
+
   return (
     <form
       className="chat-input"
+      aria-busy={isAgentRunning}
       onSubmit={(event) => {
         event.preventDefault();
+        if (isDisabled || !value.trim()) return;
         onSubmit(value);
         setValue("");
       }}
     >
       <div className="input-meta">
         <AtSign size={13} />
-        <span>{selectedNodeIds.length ? `已选 ${selectedNodeIds.length} 个对象，可输入“优化这些”` : "输入 @ 可引用画板对象"}</span>
+        <span>{inputHint}</span>
       </div>
-      {suggestions.length > 0 ? (
+      {suggestions.length > 0 && !isDisabled ? (
         <div className="mention-menu">
           {suggestions.map((node) => (
             <button key={node.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(node)}>
@@ -51,10 +64,11 @@ export function ChatInput({ nodes, selectedNodeIds, onSubmit }: ChatInputProps) 
       ) : null}
       <textarea
         value={value}
+        disabled={isDisabled}
         onChange={(event) => setValue(event.target.value)}
         placeholder="输入短指令，例如：优化这些，或修改 @通用滑块"
       />
-      <Button variant="primary" type="submit" aria-label="发送">
+      <Button variant="primary" type="submit" disabled={isDisabled || !value.trim()} aria-label={isAgentRunning ? "Agent 正在处理" : "发送"}>
         <ArrowUp size={15} />
       </Button>
     </form>

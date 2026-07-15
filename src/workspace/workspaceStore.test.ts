@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentResponse } from "../agent/agentProtocol";
+import { runAgent } from "../agent/agentClient";
 import { useWorkspaceStore } from "./workspaceStore";
 import { initialWorkspace } from "./initialWorkspace";
+
+vi.mock("../agent/agentClient", () => ({ runAgent: vi.fn() }));
 
 beforeEach(() => {
   useWorkspaceStore.setState({
@@ -12,9 +16,14 @@ beforeEach(() => {
     hoveredNodeId: null,
     mode: "edit",
     agentPermissionLevel: "confirm_destructive",
+    messages: [],
+    agentRequestStatus: "idle",
+    activeAgentRequestId: null,
+    agentRequestSequence: 0,
     pendingResponse: null,
     lastAppliedResponse: null,
   });
+  vi.mocked(runAgent).mockReset();
 });
 
 describe("workspace interaction state", () => {
@@ -95,3 +104,95 @@ describe("agent operation confirmation", () => {
     expect(state.saveState).toBe("saved");
   });
 });
+
+describe("agent request concurrency", () => {
+  it("serializes submissions while a request is running", async () => {
+    const deferred = createDeferred<AgentResponse>();
+    vi.mocked(runAgent).mockReturnValueOnce(deferred.promise);
+    useWorkspaceStore.setState({ mode: "agent", agentPermissionLevel: "auto_apply_safe" });
+
+    const firstRequest = useWorkspaceStore.getState().submitMessage("first request");
+
+    expect(useWorkspaceStore.getState().agentRequestStatus).toBe("running");
+    expect(useWorkspaceStore.getState().activeAgentRequestId).toBe(1);
+
+    await useWorkspaceStore.getState().submitMessage("duplicate request");
+
+    expect(runAgent).toHaveBeenCalledTimes(1);
+    expect(useWorkspaceStore.getState().messages.filter((message) => message.role === "user").map((message) => message.text)).toEqual([
+      "first request",
+    ]);
+
+    deferred.resolve({ message: "first response", operations: [] });
+    await firstRequest;
+
+    const state = useWorkspaceStore.getState();
+    expect(state.agentRequestStatus).toBe("idle");
+    expect(state.activeAgentRequestId).toBeNull();
+    expect(state.messages.some((message) => message.text === "first response")).toBe(true);
+  });
+
+  it("does not let an expired response mutate or finish a newer request", async () => {
+    const deferred = createDeferred<AgentResponse>();
+    vi.mocked(runAgent).mockReturnValueOnce(deferred.promise);
+
+    const expiredRequest = useWorkspaceStore.getState().submitMessage("expired request");
+    const expiredRequestId = useWorkspaceStore.getState().activeAgentRequestId;
+    expect(expiredRequestId).toBe(1);
+
+    useWorkspaceStore.setState({
+      agentRequestStatus: "running",
+      activeAgentRequestId: 2,
+      agentRequestSequence: 2,
+    });
+    deferred.resolve({ message: "expired response", operations: [] });
+    await expiredRequest;
+
+    const state = useWorkspaceStore.getState();
+    expect(state.agentRequestStatus).toBe("running");
+    expect(state.activeAgentRequestId).toBe(2);
+    expect(state.pendingResponse).toBeNull();
+    expect(state.messages.some((message) => message.text === "expired response")).toBe(false);
+  });
+
+  it("does not replace a response that is waiting for confirmation", async () => {
+    const deferred = createDeferred<AgentResponse>();
+    vi.mocked(runAgent).mockReturnValueOnce(deferred.promise);
+
+    const firstRequest = useWorkspaceStore.getState().submitMessage("review this change");
+    deferred.resolve({ message: "pending response", operations: [] });
+    await firstRequest;
+
+    expect(useWorkspaceStore.getState().pendingResponse?.message).toBe("pending response");
+
+    await useWorkspaceStore.getState().submitMessage("replace the pending response");
+
+    const state = useWorkspaceStore.getState();
+    expect(runAgent).toHaveBeenCalledTimes(1);
+    expect(state.pendingResponse?.message).toBe("pending response");
+    expect(state.messages.filter((message) => message.role === "user").map((message) => message.text)).toEqual([
+      "review this change",
+    ]);
+  });
+
+  it("ends the current request after an error", async () => {
+    vi.mocked(runAgent).mockRejectedValueOnce(new Error("network down"));
+
+    await useWorkspaceStore.getState().submitMessage("failing request");
+
+    const state = useWorkspaceStore.getState();
+    expect(state.agentRequestStatus).toBe("idle");
+    expect(state.activeAgentRequestId).toBeNull();
+    expect(state.messages.some((message) => message.role === "system" && message.text.includes("network down"))).toBe(true);
+  });
+});
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}

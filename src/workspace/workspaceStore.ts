@@ -28,6 +28,9 @@ type WorkspaceState = {
   agentPermissionLevel: AgentPermissionLevel;
   agentTransport: AgentTransport;
   agentEndpoint: string;
+  agentRequestStatus: "idle" | "running";
+  activeAgentRequestId: number | null;
+  agentRequestSequence: number;
   pendingResponse: AgentResponse | null;
   lastAppliedResponse: AgentResponse | null;
   versionHistory: VersionSnapshot[];
@@ -107,6 +110,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   agentPermissionLevel: "confirm_destructive",
   agentTransport: "local",
   agentEndpoint: "",
+  agentRequestStatus: "idle",
+  activeAgentRequestId: null,
+  agentRequestSequence: 0,
   pendingResponse: null,
   lastAppliedResponse: null,
   versionHistory: [createVersionSnapshot(initialWorkspace, "初始版本", null)],
@@ -553,6 +559,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   submitMessage: async (text) => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    const currentState = get();
+    if (currentState.agentRequestStatus === "running" || currentState.pendingResponse) return;
 
     const userMessage: ChatMessage = {
       id: createId("message_user"),
@@ -562,6 +570,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     };
 
     set((state) => ({ messages: [...state.messages, userMessage] }));
+    let requestId: number | null = null;
 
     try {
       if (trimmed === "/summary") {
@@ -589,12 +598,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         return;
       }
 
-      const context = buildWorkspaceContext(get().workspace, get().selectedNodeIds, get().recentUserEvents, trimmed);
+      const requestState = get();
+      requestId = requestState.agentRequestSequence + 1;
+      set({
+        agentRequestStatus: "running",
+        activeAgentRequestId: requestId,
+        agentRequestSequence: requestId,
+      });
+
+      const context = buildWorkspaceContext(requestState.workspace, requestState.selectedNodeIds, requestState.recentUserEvents, trimmed);
       const response = validateAgentResponse(
-        await runAgent(trimmed, context, { transport: get().agentTransport, endpoint: get().agentEndpoint }),
+        await runAgent(trimmed, context, { transport: requestState.agentTransport, endpoint: requestState.agentEndpoint }),
       );
+      if (get().activeAgentRequestId !== requestId) return;
       get().applyAgentResponse(response);
     } catch (error) {
+      if (requestId !== null && get().activeAgentRequestId !== requestId) return;
       const message = error instanceof Error ? error.message : "未知错误";
       set((state) => ({
         messages: [
@@ -602,6 +621,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           { id: createId("message_error"), role: "system", text: `操作未通过校验：${message}`, createdAt: nowIso() },
         ],
       }));
+    } finally {
+      if (requestId !== null) {
+        set((state) =>
+          state.activeAgentRequestId === requestId
+            ? { agentRequestStatus: "idle", activeAgentRequestId: null }
+            : state,
+        );
+      }
     }
   },
   applyAgentResponse: (response) => {
