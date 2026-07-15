@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Poin
 import { Bot, ChevronDown, Copy, History, PanelRightClose, PanelRightOpen, Play, Plus, Save, Share2, Trash2 } from "lucide-react";
 import { CanvasPanel } from "../canvas/CanvasPanel";
 import { ChatPanel } from "../chat/ChatPanel";
-import { WorkspaceProvider } from "../workspace/WorkspaceProvider";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
 import type { AgentTransport } from "../workspace/workspaceTypes";
 import { Button } from "../ui/Button";
@@ -89,8 +88,7 @@ export function App() {
   }, [isResizing, isSideCollapsed, updateSideWidthFromPointer]);
 
   return (
-    <WorkspaceProvider>
-      <div className="app-shell">
+    <div className="app-shell">
         <header className="top-bar">
           <div className="brand-block">
             <div className="brand-mark">
@@ -299,7 +297,6 @@ export function App() {
             {!isSideCollapsed ? <ChatPanel /> : null}
           </aside>
         </main>
-      </div>
-    </WorkspaceProvider>
+    </div>
   );
 }
