@@ -10,6 +10,10 @@ beforeEach(() => {
     activeNodeId: "slider_budget",
     activeEdgeId: null,
     hoveredNodeId: null,
+    mode: "edit",
+    agentPermissionLevel: "confirm_destructive",
+    pendingResponse: null,
+    lastAppliedResponse: null,
   });
 });
 
@@ -44,5 +48,31 @@ describe("workspace interaction state", () => {
     expect(useWorkspaceStore.getState().hoveredNodeId).toBe("note_goal");
     expect(useWorkspaceStore.getState().selectedNodeIds).toEqual(["slider_budget"]);
     expect(useWorkspaceStore.getState().activeNodeId).toBe("slider_budget");
+  });
+});
+
+describe("agent operation confirmation", () => {
+  it.each([
+    {
+      label: "delete_node",
+      operation: { type: "delete_node" as const, nodeId: "note_goal" },
+    },
+    {
+      label: "delete_edge",
+      operation: { type: "delete_edge" as const, edgeId: "edge_slider_metric" },
+    },
+  ])("requires confirmation for $label even when the agent explicitly returns false", ({ operation }) => {
+    useWorkspaceStore.setState({ mode: "agent", agentPermissionLevel: "auto_apply_safe" });
+
+    useWorkspaceStore.getState().applyAgentResponse({
+      message: "Delete requested",
+      operations: [operation],
+      requiresConfirmation: false,
+    });
+
+    const state = useWorkspaceStore.getState();
+    expect(state.pendingResponse?.operations).toEqual([operation]);
+    expect(state.workspace.pages[0].nodes.some((node) => node.id === "note_goal")).toBe(true);
+    expect(state.workspace.pages[0].edges.some((edge) => edge.id === "edge_slider_metric")).toBe(true);
   });
 });

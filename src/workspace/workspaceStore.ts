@@ -611,8 +611,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       get().mode !== "agent" ||
       permissionLevel === "suggest" ||
       permissionLevel === "manual_only" ||
-      (permissionLevel === "confirm_destructive" && (safeResponse.requiresConfirmation ?? hasDestructiveOperation)) ||
-      (permissionLevel === "auto_apply_safe" && (safeResponse.requiresConfirmation ?? hasDestructiveOperation));
+      ((permissionLevel === "confirm_destructive" || permissionLevel === "auto_apply_safe") &&
+        (safeResponse.requiresConfirmation === true || hasDestructiveOperation));
 
     if (requiresConfirmation) {
       set((state) => ({

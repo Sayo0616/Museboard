@@ -67,10 +67,23 @@ const createNodeOperationSchema = z.object({
   node: canvasNodeSchema,
 });
 
+const unsafePatchPathSegments = new Set(["__proto__", "prototype", "constructor"]);
+
+const patchPathSchema = z
+  .string()
+  .min(1, "Update path cannot be empty")
+  .refine(
+    (path) => {
+      const segments = path.split(".");
+      return segments.every((segment) => segment.length > 0 && !unsafePatchPathSegments.has(segment));
+    },
+    { message: "Update path contains an invalid or unsafe segment" },
+  );
+
 const updateNodeOperationSchema = z.object({
   type: z.literal("update_node"),
   nodeId: z.string().min(1),
-  patch: z.record(z.string(), z.unknown()),
+  patch: z.record(patchPathSchema, z.unknown()),
 });
 
 const deleteNodeOperationSchema = z.object({

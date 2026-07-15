@@ -8,6 +8,9 @@ import { validateComponentProps } from "../components-registry/registry";
 const destructiveOperations = new Set<WorkspaceOperation["type"]>(["delete_node", "delete_edge"]);
 type OperationActor = "agent" | "user";
 
+const userOnlyUpdateRoots = new Set(["permissions"]);
+const positionFields = new Set(["x", "y", "width", "height", "rotation"]);
+
 export function validateAgentResponse(response: unknown): AgentResponse {
   return agentResponseSchema.parse(response);
 }
@@ -40,13 +43,17 @@ function applyOperation(workspace: Workspace, operation: WorkspaceOperation, act
 
   switch (operation.type) {
     case "create_node": {
+      if (page.nodes.some((item) => item.id === operation.node.id)) {
+        throw new Error(`Node id already exists on the active page: ${operation.node.id}`);
+      }
       const node = validateComponentProps(withMetadata(operation.node));
       return withPage({
         ...page,
-        nodes: [...page.nodes.filter((item) => item.id !== operation.node.id), node],
+        nodes: [...page.nodes, node],
       });
     }
     case "update_node":
+      assertPatchCanBeApplied(operation.patch, actor);
       return withPage({
         ...page,
         nodes: page.nodes.map((node) => {
@@ -99,6 +106,36 @@ function applyOperation(workspace: Workspace, operation: WorkspaceOperation, act
     default:
       return workspace;
   }
+}
+
+function assertPatchCanBeApplied(patch: Record<string, unknown>, actor: OperationActor): void {
+  Object.keys(patch).forEach((path) => {
+    const [root, ...rest] = path.split(".");
+
+    if (root === "name" && rest.length === 0) {
+      return;
+    }
+
+    if ((root === "props" || root === "state") && rest.length > 0) {
+      return;
+    }
+
+    if (root === "position" && rest.length === 1 && positionFields.has(rest[0])) {
+      return;
+    }
+
+    if (userOnlyUpdateRoots.has(root)) {
+      if (actor === "agent") {
+        throw new Error(`Agent cannot update node permissions: ${path}`);
+      }
+      if (rest.length !== 1 || !["userEditable", "agentEditable", "deletable"].includes(rest[0])) {
+        throw new Error(`Unsupported permission update path: ${path}`);
+      }
+      return;
+    }
+
+    throw new Error(`Node field cannot be updated with update_node: ${path}`);
+  });
 }
 
 function getActivePageIndex(workspace: Workspace): number {
