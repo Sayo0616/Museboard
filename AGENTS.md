@@ -15,6 +15,8 @@
 
 Museboard 是一个交互式 Agent 画板前端。核心产品原则来自 `local/FRONTEND.md`：对话区只负责意图交流和短消息，真实工作成果必须落在画板中的结构化对象上。不要把 Agent 结果做成长篇聊天内容，也不要让 Agent 输出任意 HTML/JSX/脚本。
 
+核心信息架构采用“对象（Object）+ 多视图（View）+ 图关系（Graph）”，而不是“文件（File）+ 文件夹（Folder）”。未来的 Workspace 核心不是页面或目录，而是可被不同视图呈现、可被关系图连接、可被 AI 理解和操作的结构化对象。Document、Database Object、Card、Canvas、Timeline、Media、Conversation、AI Artifact、Dashboard、Graph View 都应被视为对象或对象视图，而不是孤立文件。
+
 视觉风格来自 `local/前端风格.md`：浅色、极简、克制、低对比、低噪音、桌面应用感。默认使用白色/浅暖灰/浅粉灰、极淡边框、微弱阴影和少量低饱和橙色强调。不要做营销页、厚重后台、强渐变、大面积高饱和色或 Material Design 默认风格。
 
 ## 技术栈
@@ -50,6 +52,9 @@ Museboard 是一个交互式 Agent 画板前端。核心产品原则来自 `loca
 ## 关键架构约束
 
 - `Workspace JSON` 是业务事实源。画板节点必须是结构化 `CanvasNode`，不能变成截图或任意 HTML 片段。
+- `Page` 只是 Workspace 对象集合的一种当前承载/视图，不是长期信息架构的中心。新增能力时优先建模对象、对象属性、对象关系和视图投影，不要退回文件夹式层级。
+- 内容能力应落在对象模型或视图模型上：文档用于知识和 PRD，表格/列表用于结构化业务数据，卡片用于项目、任务、Issue 或实体概览，画布用于脑暴、架构和流程，时间轴用于路线图、计划和里程碑，媒体用于图片、视频、设计稿和 PDF，对话用于评论、决策和协作记录，AI Artifact 用于分析、总结、方案和工作流，Dashboard 用于指标聚合和状态监控，Graph View 用于引用与依赖关系展示。
+- AI 的核心职责是围绕 Workspace 对象建立关联、提炼知识并推动工作流。Agent 输出应修改对象、视图或关系，而不是生成孤立页面、文件或长篇聊天内容。
 - tldraw shape 只作为画布承载层。`src/canvas/TldrawNodeShape.tsx` 中的自定义 shape 用 `nodeId` 绑定 workspace 节点，节点内容仍由 `CanvasNodeContent` 渲染。
 - Agent 只能返回 `AgentResponse = { message, operations, requiresConfirmation? }`。`message` 必须短，工作结果应通过 `WorkspaceOperation` 修改画板。
 - 执行 Agent operation 前必须经过 `operationSchemas.ts` 和 `operationEngine.ts` 校验。
