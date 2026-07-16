@@ -1,9 +1,10 @@
 import type { Workspace } from "./workspaceTypes";
+import { migrateLegacyWorkspaceToV2 } from "./workspaceMigration";
 import { nowIso } from "../utils/id";
 
 const timestamp = nowIso();
 
-export const initialWorkspace: Workspace = {
+const legacyInitialWorkspace = {
   id: "workspace_museboard",
   title: "Museboard 工作台",
   version: 1,
@@ -126,3 +127,5 @@ export const initialWorkspace: Workspace = {
     },
   ],
 };
+
+export const initialWorkspace: Workspace = migrateLegacyWorkspaceToV2(legacyInitialWorkspace);

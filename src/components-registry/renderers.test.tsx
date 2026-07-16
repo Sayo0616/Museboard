@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { CardRenderer, ChartRenderer, SliderRenderer, TableRenderer, TextRenderer, MermaidRenderer } from "./renderers";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
+import { migrateLegacyWorkspaceToV2 } from "../workspace/workspaceMigration";
 import type { CanvasNode, CanvasNodeType, Workspace } from "../workspace/workspaceTypes";
 
 const mermaidMock = vi.hoisted(() => ({
@@ -30,7 +31,7 @@ function createNode(type: CanvasNodeType, props: Record<string, unknown>, overri
 }
 
 function createWorkspace(nodes: CanvasNode[]): Workspace {
-  return {
+  return migrateLegacyWorkspaceToV2({
     id: "workspace_test",
     title: "Test workspace",
     version: 1,
@@ -40,7 +41,7 @@ function createWorkspace(nodes: CanvasNode[]): Workspace {
     dataSources: {},
     createdAt: timestamp,
     updatedAt: timestamp,
-  };
+  });
 }
 
 function seedWorkspace(node: CanvasNode) {

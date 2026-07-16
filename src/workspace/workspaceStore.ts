@@ -6,6 +6,7 @@ import { applyOperations, isDestructiveOperation, validateAgentResponse, validat
 import { downloadWorkspaceJson, downloadWorkspacePdf, downloadWorkspacePng } from "./workspaceExport";
 import { initialWorkspace } from "./initialWorkspace";
 import { getActivePage, getActivePageIndex } from "./workspaceSelectors";
+import { migrateLegacyWorkspaceToV2, syncLegacyPagesFromV2 } from "./workspaceMigration";
 import type {
   AgentPermissionLevel,
   AgentTransport,
@@ -13,7 +14,6 @@ import type {
   CanvasEdge,
   CanvasNode,
   EdgeHandle,
-  Page,
   VersionSnapshot,
   Workspace,
   WorkspaceMode,
@@ -558,16 +558,25 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
   createPage: () => {
     const pageId = createId("page");
-    const page: Page = { id: pageId, name: `页面 ${get().workspace.pages.length + 1}`, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
     set((state) => {
-      const nextWorkspace = {
+      const nextWorkspace = syncLegacyPagesFromV2({
         ...state.workspace,
-        activePageId: pageId,
-        pages: [...state.workspace.pages, page],
+        activeViewId: pageId,
+        views: {
+          ...state.workspace.views,
+          [pageId]: {
+            id: pageId,
+            kind: "canvas",
+            name: `Page ${state.workspace.pages.length + 1}`,
+            objectIds: [],
+            layouts: {},
+            viewport: { x: 0, y: 0, zoom: 1 },
+          },
+        },
         version: state.workspace.version + 1,
         updatedAt: nowIso(),
-      };
-      return { ...commitWorkspaceState(state, nextWorkspace, "新增页面"), selectedNodeIds: [], selectedEdgeIds: [], activeNodeId: null, activeEdgeId: null };
+      });
+      return { ...commitWorkspaceState(state, nextWorkspace, "Create view"), selectedNodeIds: [], selectedEdgeIds: [], activeNodeId: null, activeEdgeId: null };
     });
   },
   duplicatePage: () => {
@@ -575,11 +584,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const activePage = getActivePage(state.workspace);
       const pageId = createId("page");
       const nodeIdMap = new Map(activePage.nodes.map((node) => [node.id, createId(node.type)]));
-      const page: Page = {
+      const page = {
         ...structuredClone(activePage),
         id: pageId,
-        name: `${activePage.name} 副本`,
-        nodes: activePage.nodes.map((node) => ({ ...structuredClone(node), id: nodeIdMap.get(node.id) ?? createId(node.type), name: `${node.name} 副本` })),
+        name: `${activePage.name} copy`,
+        nodes: activePage.nodes.map((node) => ({ ...structuredClone(node), id: nodeIdMap.get(node.id) ?? createId(node.type), name: `${node.name} copy` })),
         edges: activePage.edges.map((edge) => ({
           ...structuredClone(edge),
           id: createId("edge"),
@@ -587,35 +596,49 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           targetNodeId: nodeIdMap.get(edge.targetNodeId) ?? edge.targetNodeId,
         })),
       };
-      const nextWorkspace = {
-        ...state.workspace,
+      const migratedPage = migrateLegacyWorkspaceToV2({
+        id: state.workspace.id,
+        title: state.workspace.title,
+        version: state.workspace.version,
         activePageId: pageId,
-        pages: [...state.workspace.pages, page],
+        pages: [page],
+        variables: state.workspace.variables,
+        dataSources: state.workspace.dataSources,
+        createdAt: state.workspace.createdAt,
+        updatedAt: state.workspace.updatedAt,
+      });
+      const nextWorkspace = syncLegacyPagesFromV2({
+        ...state.workspace,
+        activeViewId: pageId,
+        objects: { ...state.workspace.objects, ...migratedPage.objects },
+        views: { ...state.workspace.views, ...migratedPage.views },
+        relations: { ...state.workspace.relations, ...migratedPage.relations },
         version: state.workspace.version + 1,
         updatedAt: nowIso(),
-      };
-      return { ...commitWorkspaceState(state, nextWorkspace, "复制页面"), selectedNodeIds: [], selectedEdgeIds: [], activeNodeId: null, activeEdgeId: null };
+      });
+      return { ...commitWorkspaceState(state, nextWorkspace, "Duplicate view"), selectedNodeIds: [], selectedEdgeIds: [], activeNodeId: null, activeEdgeId: null };
     });
   },
   deletePage: (pageId) => {
     set((state) => {
-      if (state.workspace.pages.length <= 1) return state;
-      const nextPages = state.workspace.pages.filter((page) => page.id !== pageId);
-      const nextActivePageId = state.workspace.activePageId === pageId ? nextPages[0].id : state.workspace.activePageId;
-      const nextWorkspace = {
+      if (Object.keys(state.workspace.views).length <= 1 || !state.workspace.views[pageId]) return state;
+      const views = { ...state.workspace.views };
+      delete views[pageId];
+      const nextActiveViewId = state.workspace.activeViewId === pageId ? Object.keys(views)[0] : state.workspace.activeViewId;
+      const nextWorkspace = syncLegacyPagesFromV2({
         ...state.workspace,
-        activePageId: nextActivePageId,
-        pages: nextPages,
+        activeViewId: nextActiveViewId,
+        views,
         version: state.workspace.version + 1,
         updatedAt: nowIso(),
-      };
-      return { ...commitWorkspaceState(state, nextWorkspace, "删除页面"), selectedNodeIds: [], selectedEdgeIds: [], activeNodeId: null, activeEdgeId: null };
+      });
+      return { ...commitWorkspaceState(state, nextWorkspace, "Delete view"), selectedNodeIds: [], selectedEdgeIds: [], activeNodeId: null, activeEdgeId: null };
     });
   },
   setActivePage: (pageId) => {
     set((state) => {
-      if (!state.workspace.pages.some((page) => page.id === pageId)) return state;
-      return { workspace: { ...state.workspace, activePageId: pageId }, selectedNodeIds: [], selectedEdgeIds: [], activeNodeId: null, activeEdgeId: null };
+      if (!state.workspace.views[pageId]) return state;
+      return { workspace: syncLegacyPagesFromV2({ ...state.workspace, activeViewId: pageId }), selectedNodeIds: [], selectedEdgeIds: [], activeNodeId: null, activeEdgeId: null };
     });
   },
   restoreVersion: (versionId) => {
@@ -833,7 +856,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const raw = localStorage.getItem(storageKey);
       if (!raw) return;
-      const workspace = validateWorkspaceComponentProps(validateWorkspace(migrateLegacyWorkspace(JSON.parse(raw) as unknown)));
+      const workspace = validateWorkspaceComponentProps(validateWorkspace(migrateLegacyWorkspaceToV2(JSON.parse(raw) as unknown)));
       set((state) => ({
         workspace,
         past: [...state.past, state.workspace],

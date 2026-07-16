@@ -2,12 +2,13 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { InspectorPanel } from "./InspectorPanel";
 import { useWorkspaceStore } from "../workspace/workspaceStore";
+import { migrateLegacyWorkspaceToV2 } from "../workspace/workspaceMigration";
 import type { CanvasNode, Workspace } from "../workspace/workspaceTypes";
 
 const timestamp = "2026-01-01T00:00:00.000Z";
 
 function createWorkspace(node: CanvasNode): Workspace {
-  return {
+  return migrateLegacyWorkspaceToV2({
     id: "workspace_test",
     title: "Test workspace",
     version: 1,
@@ -17,7 +18,7 @@ function createWorkspace(node: CanvasNode): Workspace {
     dataSources: {},
     createdAt: timestamp,
     updatedAt: timestamp,
-  };
+  });
 }
 
 function createMermaidNode(): CanvasNode {
@@ -80,10 +81,17 @@ describe("InspectorPanel Mermaid fields", () => {
     const selectedOnlyNode = { ...createMermaidNode(), id: "selected_only", name: "Selected only" };
 
     useWorkspaceStore.setState({
-      workspace: {
-        ...createWorkspace(activeNode),
+      workspace: migrateLegacyWorkspaceToV2({
+        id: "workspace_test",
+        title: "Test workspace",
+        version: 1,
+        activePageId: "page_test",
         pages: [{ id: "page_test", name: "Test page", nodes: [activeNode, selectedOnlyNode], edges: [] }],
-      },
+        variables: {},
+        dataSources: {},
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
       selectedNodeIds: [selectedOnlyNode.id],
       activeNodeId: activeNode.id,
       activeEdgeId: null,

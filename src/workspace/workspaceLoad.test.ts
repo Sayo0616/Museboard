@@ -41,7 +41,7 @@ describe("workspace loading", () => {
     const saved = structuredClone(initialWorkspace);
     const chart = saved.pages[0].nodes.find((node) => node.type === "chart");
     if (!chart) throw new Error("Missing chart fixture");
-    delete chart.props.data;
+    delete saved.objects[chart.id].props.data;
     localStorage.setItem(storageKey, JSON.stringify(saved));
 
     useWorkspaceStore.getState().loadWorkspace();

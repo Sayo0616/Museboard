@@ -60,6 +60,116 @@ export type CanvasNode = {
   };
 };
 
+export type WorkspaceObjectKind =
+  | "document"
+  | "database_object"
+  | "card"
+  | "canvas"
+  | "timeline"
+  | "media"
+  | "conversation"
+  | "ai_artifact"
+  | "dashboard";
+
+export type WorkspaceObject = {
+  id: string;
+  kind: WorkspaceObjectKind;
+  name: string;
+  props: Record<string, unknown>;
+  state?: Record<string, unknown>;
+  bindings?: CanvasNode["bindings"];
+  permissions?: {
+    userEditable: boolean;
+    agentEditable: boolean;
+    deletable: boolean;
+  };
+  metadata: {
+    createdBy: "user" | "agent";
+    updatedBy: "user" | "agent";
+    createdAt: string;
+    updatedAt: string;
+    description?: string;
+    tags?: string[];
+  };
+};
+
+export type CanvasObjectLayout = {
+  objectId: string;
+  rendererType: CanvasNodeType;
+  position: CanvasPosition;
+  localProps?: Record<string, unknown>;
+  hidden?: boolean;
+  locked?: boolean;
+};
+
+export type CanvasWorkspaceView = {
+  id: string;
+  kind: "canvas";
+  name: string;
+  objectIds: string[];
+  layouts: Record<string, CanvasObjectLayout>;
+  viewport?: {
+    x: number;
+    y: number;
+    zoom: number;
+  };
+};
+
+export type TableWorkspaceView = {
+  id: string;
+  kind: "table";
+  name: string;
+  objectIds: string[];
+};
+
+export type TimelineWorkspaceView = {
+  id: string;
+  kind: "timeline";
+  name: string;
+  objectIds: string[];
+};
+
+export type DashboardWorkspaceView = {
+  id: string;
+  kind: "dashboard";
+  name: string;
+  objectIds: string[];
+};
+
+export type GraphWorkspaceView = {
+  id: string;
+  kind: "graph";
+  name: string;
+  objectIds: string[];
+  relationIds: string[];
+};
+
+export type WorkspaceView =
+  | CanvasWorkspaceView
+  | TableWorkspaceView
+  | TimelineWorkspaceView
+  | DashboardWorkspaceView
+  | GraphWorkspaceView;
+
+export type WorkspaceRelationKind = "reference" | "dependency" | "data_flow" | "comment" | "contains" | "derived_from";
+
+export type WorkspaceRelation = {
+  id: string;
+  sourceObjectId: string;
+  targetObjectId: string;
+  kind: WorkspaceRelationKind;
+  label?: string;
+  props?: Record<string, unknown>;
+  metadata: {
+    createdBy: "user" | "agent";
+    updatedBy: "user" | "agent";
+    createdAt: string;
+    updatedAt: string;
+  };
+};
+
+export type WorkspaceDataSource = Record<string, unknown>;
+
 export type EdgeHandle = "top" | "right" | "bottom" | "left";
 
 export type EdgeArrowStyle = "none" | "arrow" | "circle" | "diamond";
@@ -94,13 +204,18 @@ export type Page = {
 };
 
 export type Workspace = {
+  schemaVersion: 2;
   id: string;
   title: string;
   version: number;
+  activeViewId: string;
+  objects: Record<string, WorkspaceObject>;
+  views: Record<string, WorkspaceView>;
+  relations: Record<string, WorkspaceRelation>;
   activePageId: string;
   pages: Page[];
   variables: Record<string, WorkspaceVariable>;
-  dataSources: Record<string, unknown>;
+  dataSources: Record<string, WorkspaceDataSource>;
   createdAt: string;
   updatedAt: string;
 };

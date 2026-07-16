@@ -13,7 +13,7 @@ describe("operation engine boundaries", () => {
 
     expect(() =>
       applyOperations(workspace, [{ type: "create_node", node: { ...structuredClone(existing), name: "Replacement" } }]),
-    ).toThrow(`Node id already exists: ${existing.id}`);
+    ).toThrow(`Object id already exists: ${existing.id}`);
     expect(workspace.pages[0].nodes[0].name).toBe(existing.name);
   });
 
@@ -87,6 +87,117 @@ describe("operation engine boundaries", () => {
     ]);
 
     expect(updated.pages[0].nodes.find((node) => node.id === "note_goal")?.props.title).toBe("Agent result");
+    expect(updated.objects.note_goal.props.title).toBe("Agent result");
+  });
+
+  it("creates and places a V2 object in the active canvas view", () => {
+    const template = structuredClone(workspaceFixture().objects.note_goal);
+    const updated = applyOperations(
+      workspaceFixture(),
+      [
+        { type: "create_object", object: { ...template, id: "object_new", name: "New object" } },
+        {
+          type: "place_object_in_view",
+          objectId: "object_new",
+          layout: {
+            objectId: "object_new",
+            rendererType: "text",
+            position: { x: 300, y: 160, width: 320, height: 132 },
+          },
+        },
+      ],
+      "user",
+    );
+
+    expect(updated.objects.object_new.name).toBe("New object");
+    expect(updated.pages[0].nodes.find((node) => node.id === "object_new")).toMatchObject({
+      name: "New object",
+      position: { x: 300 },
+    });
+  });
+
+  it("creates workspace relations independent of legacy page edges", () => {
+    const updated = applyOperations(
+      workspaceFixture(),
+      [
+        {
+          type: "create_relation",
+          relation: {
+            id: "relation_reference",
+            sourceObjectId: "note_goal",
+            targetObjectId: "table_plan",
+            kind: "reference",
+            label: "references plan",
+            metadata: { createdBy: "user", updatedBy: "user", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+          },
+        },
+      ],
+      "user",
+    );
+
+    expect(updated.relations.relation_reference).toMatchObject({
+      sourceObjectId: "note_goal",
+      targetObjectId: "table_plan",
+      kind: "reference",
+    });
+    expect(updated.pages[0].edges.find((edge) => edge.id === "relation_reference")).toMatchObject({
+      sourceNodeId: "note_goal",
+      targetNodeId: "table_plan",
+    });
+  });
+
+  it("rejects V2 operations that would leave invalid workspace view state", () => {
+    expect(() =>
+      applyOperations(
+        workspaceFixture(),
+        [{ type: "update_view", viewId: "page_main", patch: { "viewport.zoom": -1 } }],
+        "user",
+      ),
+    ).toThrow();
+
+    expect(() =>
+      applyOperations(
+        workspaceFixture(),
+        [{ type: "update_view_layout", objectId: "note_goal", patch: { "position.width": 1 } }],
+        "user",
+      ),
+    ).toThrow();
+  });
+
+  it("removes deleted relations from graph views", () => {
+    const workspace = workspaceFixture();
+    workspace.views.graph_main = {
+      id: "graph_main",
+      kind: "graph",
+      name: "Graph",
+      objectIds: ["slider_budget", "card_roi"],
+      relationIds: ["edge_slider_metric"],
+    };
+
+    const updated = applyOperations(workspace, [{ type: "delete_relation", relationId: "edge_slider_metric" }], "user");
+
+    const graphView = updated.views.graph_main;
+    expect(graphView.kind).toBe("graph");
+    if (graphView.kind !== "graph") throw new Error("Expected graph view");
+    expect(graphView.relationIds).not.toContain("edge_slider_metric");
+  });
+
+  it("removes object-related relations from graph views when deleting an object", () => {
+    const workspace = workspaceFixture();
+    workspace.views.graph_main = {
+      id: "graph_main",
+      kind: "graph",
+      name: "Graph",
+      objectIds: ["slider_budget", "card_roi"],
+      relationIds: ["edge_slider_metric"],
+    };
+
+    const updated = applyOperations(workspace, [{ type: "delete_object", objectId: "slider_budget" }], "user");
+
+    const graphView = updated.views.graph_main;
+    expect(graphView.kind).toBe("graph");
+    if (graphView.kind !== "graph") throw new Error("Expected graph view");
+    expect(graphView.relationIds).toEqual([]);
   });
 
   it("rejects operations whose target node does not exist", () => {
@@ -112,7 +223,7 @@ describe("operation engine boundaries", () => {
           edge: { id: "edge_slider_metric", sourceNodeId: "note_goal", targetNodeId: "slider_budget", type: "dependency" },
         },
       ]),
-    ).toThrow(/Edge id already exists/);
+    ).toThrow(/Relation id already exists/);
   });
 
   it("rejects self-connected edges", () => {
@@ -123,7 +234,7 @@ describe("operation engine boundaries", () => {
           edge: { id: "edge_self", sourceNodeId: "note_goal", targetNodeId: "note_goal", type: "dependency" },
         },
       ]),
-    ).toThrow(/cannot connect a node to itself/);
+    ).toThrow(/cannot connect an object to itself/);
   });
 
   it("updates edge presentation fields through update_edge", () => {
@@ -196,7 +307,7 @@ describe("operation engine boundaries", () => {
         ],
         "user",
       ),
-    ).toThrow(/cannot connect a node to itself/);
+    ).toThrow(/cannot connect an object to itself/);
   });
 
   it("does not create a version for an empty operation list", () => {

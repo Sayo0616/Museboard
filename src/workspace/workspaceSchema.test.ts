@@ -3,7 +3,7 @@ import { initialWorkspace } from "./initialWorkspace";
 import { validateWorkspace } from "./workspaceSchema";
 
 describe("workspaceSchema", () => {
-  it("accepts the initial workspace", () => {
+  it("accepts the initial V2 workspace", () => {
     expect(validateWorkspace(initialWorkspace)).toEqual(initialWorkspace);
   });
 
@@ -14,35 +14,45 @@ describe("workspaceSchema", () => {
     expect(() => validateWorkspace(workspace)).toThrow();
   });
 
-  it("rejects edges that reference missing nodes", () => {
+  it("rejects relations that reference missing objects", () => {
     const workspace = structuredClone(initialWorkspace);
-    workspace.pages[0].edges[0].targetNodeId = "missing_node";
+    workspace.relations.edge_slider_metric.targetObjectId = "missing_object";
 
-    expect(() => validateWorkspace(workspace)).toThrow(/连接终点不存在/);
+    expect(() => validateWorkspace(workspace)).toThrow(/关系终点对象不存在/);
   });
 
-  it("rejects edges that connect a node to itself", () => {
+  it("rejects relations that connect an object to itself", () => {
     const workspace = structuredClone(initialWorkspace);
-    workspace.pages[0].edges[0].targetNodeId = workspace.pages[0].edges[0].sourceNodeId;
+    workspace.relations.edge_slider_metric.targetObjectId = workspace.relations.edge_slider_metric.sourceObjectId;
 
-    expect(() => validateWorkspace(workspace)).toThrow(/连接不能指向自身/);
+    expect(() => validateWorkspace(workspace)).toThrow(/关系不能指向自身/);
   });
 
-  it("rejects duplicate node ids across pages", () => {
+  it("rejects canvas layouts that reference objects outside the view", () => {
     const workspace = structuredClone(initialWorkspace);
-    workspace.pages.push({
-      id: "page_duplicate",
-      name: "重复节点页面",
-      nodes: [structuredClone(workspace.pages[0].nodes[0])],
-      edges: [],
-    });
+    const view = workspace.views.page_main;
+    if (view.kind !== "canvas") throw new Error("Missing canvas view");
+    view.layouts.note_goal.objectId = "missing_object";
 
-    expect(() => validateWorkspace(workspace)).toThrow(/节点 ID 重复/);
+    expect(() => validateWorkspace(workspace)).toThrow(/布局引用的对象不存在/);
   });
 
-  it("requires the active page to exist", () => {
-    const workspace = { ...structuredClone(initialWorkspace), activePageId: "missing_page" };
+  it("requires the active view to exist", () => {
+    const workspace = { ...structuredClone(initialWorkspace), activeViewId: "missing_view" };
 
-    expect(() => validateWorkspace(workspace)).toThrow(/当前页面不存在/);
+    expect(() => validateWorkspace(workspace)).toThrow(/当前视图不存在/);
+  });
+
+  it("rejects graph views that reference missing relations", () => {
+    const workspace = structuredClone(initialWorkspace);
+    workspace.views.graph_main = {
+      id: "graph_main",
+      kind: "graph",
+      name: "Graph",
+      objectIds: ["note_goal"],
+      relationIds: ["missing_relation"],
+    };
+
+    expect(() => validateWorkspace(workspace)).toThrow(/关系图引用的关系不存在/);
   });
 });

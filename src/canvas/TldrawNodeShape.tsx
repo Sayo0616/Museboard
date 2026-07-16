@@ -92,7 +92,8 @@ export class MuseboardNodeShapeUtil extends ShapeUtil<MuseboardShape> {
 }
 
 function MuseboardTldrawNode({ shape }: { shape: MuseboardShape }) {
-  const node = useWorkspaceStore((state) => getActivePage(state.workspace).nodes.find((item) => item.id === shape.props.nodeId));
+  const workspace = useWorkspaceStore((state) => state.workspace);
+  const node = getActivePage(workspace).nodes.find((item) => item.id === shape.props.nodeId);
   const isSelected = useWorkspaceStore((state) => state.selectedNodeIds.includes(shape.props.nodeId));
   const isActive = useWorkspaceStore((state) => state.activeNodeId === shape.props.nodeId);
   const isHovered = useWorkspaceStore((state) => state.hoveredNodeId === shape.props.nodeId);

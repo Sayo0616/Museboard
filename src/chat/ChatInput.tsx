@@ -25,7 +25,7 @@ export function ChatInput({ nodes, selectedNodeIds, isAgentRunning, hasPendingRe
   const insertMention = (node: CanvasNode) => {
     const atIndex = value.lastIndexOf("@");
     const prefix = atIndex >= 0 ? value.slice(0, atIndex) : value;
-    const next = `${prefix}@${node.name} `;
+    const next = `${prefix}@[${node.name}](object:${node.id}) `;
     setValue(next);
   };
 
