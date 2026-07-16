@@ -247,6 +247,7 @@ export function CanvasPanel() {
           if (target.closest(".edge-endpoint-handle")) return;
           if (target.closest(".connection-handle")) return;
           if (target.closest(".edge-controls")) return;
+          if (event.button === 2 && target.closest("[data-inner-context-menu='true']")) return;
           const nodeElement = target.closest<HTMLElement>("[data-node-id]");
           if (nodeElement) {
             const nodeId = nodeElement.dataset.nodeId ?? null;

@@ -349,6 +349,127 @@ describe("MermaidRenderer", () => {
 });
 
 describe("inline edit transactions", () => {
+  it("shows chart value feedback on hover and pins a data point on left click", () => {
+    const node = createNode("chart", {
+      title: "Revenue",
+      chartType: "bar",
+      data: [12, 24, 18],
+      labels: ["Jan", "Feb", "Mar"],
+    });
+    seedWorkspace(node);
+
+    render(<ChartRenderer node={node} />);
+    const febPoint = screen.getByRole("button", { name: "Feb: 24" });
+
+    fireEvent.pointerEnter(febPoint);
+    expect(screen.getByRole("status")).toHaveTextContent("Feb");
+    expect(screen.getByRole("status")).toHaveTextContent("24");
+
+    fireEvent.click(febPoint);
+    expect(storedNode<{ focusedIndex: number }>(node.id).props.focusedIndex).toBe(1);
+    expect(useWorkspaceStore.getState().past).toHaveLength(1);
+  });
+
+  it("opens chart point actions on right click and applies menu commands", () => {
+    const node = createNode("chart", {
+      title: "Revenue",
+      chartType: "line",
+      data: [12, 24, 18],
+      labels: ["Jan", "Feb", "Mar"],
+    });
+    seedWorkspace(node);
+
+    render(<ChartRenderer node={node} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Mar: 18" }), { clientX: 120, clientY: 90 });
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "聚焦此项" }));
+    expect(storedNode<{ focusedIndex: number }>(node.id).props.focusedIndex).toBe(2);
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Mar: 18" }), { clientX: 120, clientY: 90 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "pie" }));
+    expect(storedNode<{ chartType: string }>(node.id).props.chartType).toBe("pie");
+  });
+
+  it("closes the chart point menu when the user clicks outside it", () => {
+    const node = createNode("chart", {
+      title: "Revenue",
+      chartType: "bar",
+      data: [12, 24],
+      labels: ["Jan", "Feb"],
+    });
+    seedWorkspace(node);
+
+    render(
+      <>
+        <ChartRenderer node={node} />
+        <button type="button">画板空白</button>
+      </>,
+    );
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Jan: 12" }), { clientX: 80, clientY: 80 });
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "画板空白" }));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("marks chart data points as inner context-menu targets", () => {
+    const node = createNode("chart", {
+      title: "Revenue",
+      chartType: "bar",
+      data: [12, 24],
+      labels: ["Jan", "Feb"],
+    });
+    seedWorkspace(node);
+
+    render(<ChartRenderer node={node} />);
+
+    expect(screen.getByRole("button", { name: "Jan: 12" })).toHaveAttribute("data-inner-context-menu", "true");
+  });
+
+  it("keeps the first bar tooltip aligned inside the chart area", () => {
+    const node = createNode(
+      "chart",
+      {
+        title: "Revenue",
+        chartType: "bar",
+        data: [12, 24, 18],
+        labels: ["Jan", "Feb", "Mar"],
+      },
+      { position: { x: 0, y: 0, width: 320, height: 180 } },
+    );
+    seedWorkspace(node);
+
+    render(<ChartRenderer node={node} />);
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Jan: 12" }));
+
+    expect(screen.getByRole("status")).toHaveClass("align-left");
+  });
+
+  it("keeps bar hit targets aligned to the visible bar body", () => {
+    const node = createNode(
+      "chart",
+      {
+        title: "Revenue",
+        chartType: "bar",
+        data: [1, 100],
+        labels: ["Short", "Tall"],
+      },
+      { position: { x: 0, y: 0, width: 320, height: 180 } },
+    );
+    seedWorkspace(node);
+
+    const { container } = render(<ChartRenderer node={node} />);
+    const shortGroup = screen.getByRole("button", { name: "Short: 1" });
+    const hitTarget = shortGroup.querySelector(".chart-hit-target");
+    const visibleBar = container.querySelector(".chart-datum rect:not(.chart-hit-target)");
+
+    expect(hitTarget).not.toBeNull();
+    expect(visibleBar).not.toBeNull();
+    expect(hitTarget?.getAttribute("y")).toBe(visibleBar?.getAttribute("y"));
+    expect(hitTarget?.getAttribute("height")).toBe(visibleBar?.getAttribute("height"));
+  });
+
   it("batches repeated chart title changes into one undo and version snapshot", () => {
     const node = createNode("chart", {
       title: "Original title",

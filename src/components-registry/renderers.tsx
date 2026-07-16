@@ -314,23 +314,71 @@ function getSliderRangeError(min: number, max: number, step: number, value: numb
 export function ChartRenderer({ node }: ComponentRendererProps) {
   const edit = useNodeEditTransaction(node.id);
   const mode = useWorkspaceStore((state) => state.mode);
-  const data = Array.isArray(node.props.data) ? (node.props.data as number[]) : [];
+  const updateNode = useWorkspaceStore((state) => state.updateNode);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [menuState, setMenuState] = useState<{ index: number; x: number; y: number } | null>(null);
+  const data = normalizeChartData(node.props.data);
   const labels = Array.isArray(node.props.labels) ? (node.props.labels as string[]) : [];
   const max = Math.max(...data, 1);
   const chartType = String(node.props.chartType ?? "bar");
   const width = Math.max(220, node.position.width - 36);
   const height = Math.max(130, node.position.height - 92);
-  const points = data
-    .map((value, index) => {
-      const x = 16 + (index * (width - 32)) / Math.max(data.length - 1, 1);
-      const y = height - 16 - (value / max) * (height - 36);
-      return `${x},${y}`;
-    })
-    .join(" ");
+  const focusedIndex = normalizeChartIndex(node.props.focusedIndex, data.length);
+  const activeIndex = hoveredIndex ?? focusedIndex;
+  const cartesianPoints = getCartesianChartPoints(data, labels, width, height, max);
+  const piePoints = chartType === "pie" ? getPieChartPoints(data, labels, width, height) : [];
+  const activePoint = activeIndex == null ? null : (chartType === "pie" ? piePoints[activeIndex] : cartesianPoints[activeIndex]) ?? null;
   const titleEditLabel = `${node.name} 标题已更新`;
+  const persistFocus = (index: number | null) => {
+    updateNode(node.id, { "props.focusedIndex": index }, index == null ? `${node.name} 清除图表焦点` : `${node.name} 聚焦 ${labels[index] ?? index + 1}`);
+    setMenuState(null);
+  };
+  const toggleFocus = (index: number) => persistFocus(focusedIndex === index ? null : index);
+  const openPointMenu = (event: ReactMouseEvent<SVGGElement>, index: number) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = containerRef.current?.getBoundingClientRect();
+    setHoveredIndex(index);
+    setMenuState({
+      index,
+      x: rect ? event.clientX - rect.left : event.clientX,
+      y: rect ? event.clientY - rect.top : event.clientY,
+    });
+  };
+  const switchChartType = (nextType: string) => {
+    updateNode(node.id, { "props.chartType": nextType }, `${node.name} 切换为 ${nextType} 图表`);
+    setMenuState(null);
+  };
+  const handlePointKeyDown = (event: ReactKeyboardEvent<SVGGElement>, index: number) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.stopPropagation();
+    toggleFocus(index);
+  };
+
+  useEffect(() => {
+    if (!menuState) return;
+
+    const closeOnOutsidePointerDown = (event: globalThis.PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".chart-context-menu")) return;
+      setMenuState(null);
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setMenuState(null);
+    };
+
+    window.addEventListener("pointerdown", closeOnOutsidePointerDown, true);
+    window.addEventListener("keydown", closeOnEscape, true);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnOutsidePointerDown, true);
+      window.removeEventListener("keydown", closeOnEscape, true);
+    };
+  }, [menuState]);
 
   return (
-    <div className="chart-node-content">
+    <div className="chart-node-content" ref={containerRef}>
       <input
         className="chart-title inline-node-input"
         value={String(node.props.title ?? node.name)}
@@ -340,46 +388,90 @@ export function ChartRenderer({ node }: ComponentRendererProps) {
         onBlur={() => edit.commitUserEdit(titleEditLabel)}
         onKeyDown={(event) => edit.finishOnKeyDown(event, titleEditLabel)}
       />
-      <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg" aria-label={node.name}>
-        {chartType === "pie" ? (
-          <PieChart data={data} labels={labels} width={width} height={height} />
-        ) : chartType === "scatter" ? (
-          <>
-            <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="var(--border)" />
-            <ScatterChart data={data} width={width} height={height} max={max} />
-          </>
-        ) : chartType === "line" ? (
-          <>
-            <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="var(--border)" />
-            <polyline points={points} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            {data.map((value, index) => {
-              const x = 16 + (index * (width - 32)) / Math.max(data.length - 1, 1);
-              const y = height - 16 - (value / max) * (height - 36);
-              return <circle key={`${value}-${index}`} cx={x} cy={y} r="3" fill="var(--accent)" opacity="0.72" />;
-            })}
-          </>
-        ) : (
-          <>
-            <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="var(--border)" />
-            {data.map((value, index) => {
-              const barWidth = (width - 48) / Math.max(data.length, 1);
-              const barHeight = (value / max) * (height - 42);
-              return (
-                <rect
-                  key={`${value}-${index}`}
-                  x={22 + index * barWidth}
-                  y={height - 16 - barHeight}
-                  width={Math.max(10, barWidth - 10)}
-                  height={barHeight}
-                  rx="5"
-                  fill="var(--accent)"
-                  opacity="0.58"
-                />
-              );
-            })}
-          </>
-        )}
-      </svg>
+      <div className="chart-plot" onPointerLeave={() => setHoveredIndex(null)}>
+        <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg" aria-label={node.name}>
+          {chartType === "pie" ? (
+            <PieChart
+              points={piePoints}
+              data={data}
+              width={width}
+              height={height}
+              activeIndex={activeIndex}
+              focusedIndex={focusedIndex}
+              onHover={setHoveredIndex}
+              onToggleFocus={toggleFocus}
+              onOpenMenu={openPointMenu}
+              onKeyDown={handlePointKeyDown}
+            />
+          ) : chartType === "scatter" ? (
+            <>
+              <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="var(--border)" />
+              <ScatterChart
+                points={cartesianPoints}
+                activeIndex={activeIndex}
+                focusedIndex={focusedIndex}
+                onHover={setHoveredIndex}
+                onToggleFocus={toggleFocus}
+                onOpenMenu={openPointMenu}
+                onKeyDown={handlePointKeyDown}
+              />
+            </>
+          ) : chartType === "line" ? (
+            <>
+              <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="var(--border)" />
+              <polyline
+                points={cartesianPoints.map((point) => `${point.x},${point.y}`).join(" ")}
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <LineChartPoints
+                points={cartesianPoints}
+                activeIndex={activeIndex}
+                focusedIndex={focusedIndex}
+                onHover={setHoveredIndex}
+                onToggleFocus={toggleFocus}
+                onOpenMenu={openPointMenu}
+                onKeyDown={handlePointKeyDown}
+              />
+            </>
+          ) : (
+            <>
+              <line x1="16" y1={height - 16} x2={width - 12} y2={height - 16} stroke="var(--border)" />
+              <BarChart
+                points={cartesianPoints}
+                width={width}
+                height={height}
+                activeIndex={activeIndex}
+                focusedIndex={focusedIndex}
+                onHover={setHoveredIndex}
+                onToggleFocus={toggleFocus}
+                onOpenMenu={openPointMenu}
+                onKeyDown={handlePointKeyDown}
+              />
+            </>
+          )}
+        </svg>
+        {activePoint ? <ChartTooltip point={activePoint} width={width} height={height} pinned={activePoint.index === focusedIndex} /> : null}
+      </div>
+      {menuState ? (
+        <div className="chart-context-menu" style={{ left: menuState.x, top: menuState.y }} role="menu" onPointerDown={(event) => event.stopPropagation()}>
+          <button type="button" role="menuitem" onClick={() => persistFocus(menuState.index)}>
+            聚焦此项
+          </button>
+          <button type="button" role="menuitem" onClick={() => persistFocus(null)}>
+            清除聚焦
+          </button>
+          <div className="chart-menu-separator" />
+          {["bar", "line", "pie", "scatter"].map((type) => (
+            <button key={type} type="button" role="menuitem" aria-current={chartType === type ? "true" : undefined} onClick={() => switchChartType(type)}>
+              {type}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {chartType !== "pie" ? (
         <div className="chart-labels">
           {labels.slice(0, 6).map((label) => (
@@ -391,9 +483,92 @@ export function ChartRenderer({ node }: ComponentRendererProps) {
   );
 }
 
-function PieChart({ data, labels, width, height }: { data: number[]; labels: string[]; width: number; height: number }) {
+type ChartPoint = {
+  index: number;
+  label: string;
+  value: number;
+  x: number;
+  y: number;
+};
+
+type ChartPointHandlers = {
+  activeIndex: number | null;
+  focusedIndex: number | null;
+  onHover: (index: number | null) => void;
+  onToggleFocus: (index: number) => void;
+  onOpenMenu: (event: ReactMouseEvent<SVGGElement>, index: number) => void;
+  onKeyDown: (event: ReactKeyboardEvent<SVGGElement>, index: number) => void;
+};
+
+function normalizeChartData(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => (typeof item === "number" ? item : Number(item))).filter((item) => Number.isFinite(item));
+}
+
+function normalizeChartIndex(value: unknown, length: number): number | null {
+  if (typeof value !== "number" || !Number.isInteger(value)) return null;
+  if (value < 0 || value >= length) return null;
+  return value;
+}
+
+function getCartesianChartPoints(data: number[], labels: string[], width: number, height: number, max: number): ChartPoint[] {
+  return data.map((value, index) => {
+    const x = 16 + (index * (width - 32)) / Math.max(data.length - 1, 1);
+    const y = height - 16 - (value / max) * (height - 36);
+    return { index, label: labels[index] ?? String(index + 1), value, x, y };
+  });
+}
+
+function getPieChartPoints(data: number[], labels: string[], width: number, height: number): ChartPoint[] {
   const total = data.reduce((sum, value) => sum + Math.max(0, value), 0) || 1;
-  const radius = Math.max(38, Math.min(width, height) / 2 - 26);
+  const radius = getPieRadius(width, height);
+  const cx = width / 2;
+  const cy = height / 2;
+  let angle = -90;
+  return data.map((value, index) => {
+    const portion = Math.max(0, value) / total;
+    const nextAngle = angle + portion * 360;
+    const labelAngle = angle + (nextAngle - angle) / 2;
+    const labelPoint = polarToCartesian(cx, cy, radius * 0.66, labelAngle);
+    angle = nextAngle;
+    return { index, label: labels[index] ?? String(index + 1), value, x: labelPoint.x, y: labelPoint.y };
+  });
+}
+
+function getPieRadius(width: number, height: number) {
+  return Math.max(38, Math.min(width, height) / 2 - 26);
+}
+
+function chartPointClass(index: number, activeIndex: number | null, focusedIndex: number | null) {
+  return `chart-datum ${activeIndex === index ? "is-active" : ""} ${focusedIndex === index ? "is-focused" : ""}`;
+}
+
+function interactivePointProps(point: ChartPoint, handlers: ChartPointHandlers) {
+  return {
+    className: chartPointClass(point.index, handlers.activeIndex, handlers.focusedIndex),
+    role: "button",
+    tabIndex: 0,
+    "data-inner-context-menu": "true",
+    "aria-label": `${point.label}: ${point.value}`,
+    onPointerEnter: () => handlers.onHover(point.index),
+    onClick: (event: ReactMouseEvent<SVGGElement>) => {
+      event.stopPropagation();
+      handlers.onToggleFocus(point.index);
+    },
+    onContextMenu: (event: ReactMouseEvent<SVGGElement>) => handlers.onOpenMenu(event, point.index),
+    onKeyDown: (event: ReactKeyboardEvent<SVGGElement>) => handlers.onKeyDown(event, point.index),
+  };
+}
+
+function PieChart({
+  points,
+  data,
+  width,
+  height,
+  ...handlers
+}: { points: ChartPoint[]; data: number[]; width: number; height: number } & ChartPointHandlers) {
+  const total = data.reduce((sum, value) => sum + Math.max(0, value), 0) || 1;
+  const radius = getPieRadius(width, height);
   const cx = width / 2;
   const cy = height / 2;
   const colors = ["var(--accent)", "#e7a086", "#f2cab9", "#c98265", "#d9a082", "var(--accent-strong)"];
@@ -407,15 +582,15 @@ function PieChart({ data, labels, width, height }: { data: number[]; labels: str
         const path = describeArc(cx, cy, radius, angle, nextAngle);
         const labelAngle = angle + (nextAngle - angle) / 2;
         const labelPoint = polarToCartesian(cx, cy, radius * 0.66, labelAngle);
-        const label = labels[index] ?? String(index + 1);
+        const point = points[index];
         const percent = Math.round(portion * 100);
         angle = nextAngle;
         return (
-          <g key={`${value}-${index}`}>
+          <g key={`${value}-${index}`} {...interactivePointProps(point, handlers)}>
             <path d={path} fill={colors[index % colors.length]} opacity="0.78" />
             {percent >= 5 ? (
               <text className="pie-slice-label" x={labelPoint.x} y={labelPoint.y} textAnchor="middle" dominantBaseline="middle">
-                {label} {percent}%
+                {point.label} {percent}%
               </text>
             ) : null}
           </g>
@@ -425,15 +600,63 @@ function PieChart({ data, labels, width, height }: { data: number[]; labels: str
   );
 }
 
-function ScatterChart({ data, width, height, max }: { data: number[]; width: number; height: number; max: number }) {
+function ScatterChart({ points, ...handlers }: { points: ChartPoint[] } & ChartPointHandlers) {
   return (
     <>
-      {data.map((value, index) => {
-        const x = 20 + (index * (width - 44)) / Math.max(data.length - 1, 1);
-        const y = height - 18 - (value / max) * (height - 44);
-        return <circle key={`${value}-${index}`} cx={x} cy={y} r="5" fill="var(--accent)" opacity="0.58" />;
+      {points.map((point) => (
+        <g key={`${point.value}-${point.index}`} {...interactivePointProps(point, handlers)}>
+          <circle className="chart-hit-target" cx={point.x} cy={point.y} r="13" />
+          <circle cx={point.x} cy={point.y} r="5" fill="var(--accent)" opacity="0.58" />
+        </g>
+      ))}
+    </>
+  );
+}
+
+function LineChartPoints({ points, ...handlers }: { points: ChartPoint[] } & ChartPointHandlers) {
+  return (
+    <>
+      {points.map((point) => (
+        <g key={`${point.value}-${point.index}`} {...interactivePointProps(point, handlers)}>
+          <circle className="chart-hit-target" cx={point.x} cy={point.y} r="13" />
+          <circle cx={point.x} cy={point.y} r="3" fill="var(--accent)" opacity="0.72" />
+        </g>
+      ))}
+    </>
+  );
+}
+
+function BarChart({ points, width, height, ...handlers }: { points: ChartPoint[]; width: number; height: number } & ChartPointHandlers) {
+  const barWidth = (width - 48) / Math.max(points.length, 1);
+  return (
+    <>
+      {points.map((point) => {
+        const barHeight = height - 16 - point.y;
+        const x = 22 + point.index * barWidth;
+        const rectWidth = Math.max(10, barWidth - 10);
+        return (
+          <g key={`${point.value}-${point.index}`} {...interactivePointProps({ ...point, x: x + rectWidth / 2 }, handlers)}>
+            <rect className="chart-hit-target" x={x} y={height - 16 - barHeight} width={rectWidth} height={barHeight} />
+            <rect x={x} y={height - 16 - barHeight} width={rectWidth} height={barHeight} rx="5" fill="var(--accent)" opacity="0.58" />
+          </g>
+        );
       })}
     </>
+  );
+}
+
+function ChartTooltip({ point, width, height, pinned }: { point: ChartPoint; width: number; height: number; pinned: boolean }) {
+  const alignment = point.x < 76 ? "left" : point.x > width - 76 ? "right" : "center";
+  return (
+    <div
+      className={`chart-tooltip align-${alignment}`}
+      style={{ left: `${(point.x / width) * 100}%`, top: `${(point.y / height) * 100}%` }}
+      role="status"
+    >
+      <span>{pinned ? "已固定" : "悬停"}</span>
+      <strong>{point.label}</strong>
+      <em>{point.value.toLocaleString("zh-CN")}</em>
+    </div>
   );
 }
 

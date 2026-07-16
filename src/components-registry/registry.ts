@@ -138,6 +138,7 @@ export const componentRegistry: Record<CanvasNodeType, ComponentDefinition> = {
         chartType: z.enum(["bar", "line", "pie", "scatter"]).or(z.string()),
         data: z.array(z.number()),
         labels: z.array(z.string()).optional(),
+        focusedIndex: z.number().int().nonnegative().nullable().optional(),
       })
       .catchall(z.unknown()),
     getContextSummary: (node) => `${node.name}: ${String(node.props.title ?? "图表")}`,
